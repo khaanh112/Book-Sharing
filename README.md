@@ -44,7 +44,7 @@ rem Tạo file .env theo mẫu .env.example (nếu có)
 npm run dev
 ```
 
-Server backend mặc định sẽ chạy trên `http://localhost:5000` (kiểm tra `index.js` hoặc `package.json` nếu cần thay đổi).
+Server backend mặc định sẽ chạy trên `http://localhost:3000` (kiểm tra `index.js` hoặc `package.json` nếu cần thay đổi).
 
 3) Frontend
 
