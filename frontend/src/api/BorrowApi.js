@@ -12,7 +12,7 @@ const BorrowApi = {
   getBorrows: () => API.get("/borrow-requests"),
   getBorrowById: (id) => API.get(`/borrow-requests/${id}`),
   getBorrowsByUser: (userId) => API.get(`/borrow-requests/user/${userId}`),
-  deleteBorrow: (id) => API.delete(`/borrow-requests/${id}`),
+  deleteBorrow: (id) => API.delete(`/borrows/${id}`),
 };
 
 export default BorrowApi;

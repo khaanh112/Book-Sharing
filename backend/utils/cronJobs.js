@@ -17,7 +17,7 @@ export const scheduleDueDateNotifications = () => {
       const now = new Date();
       const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-      // Tìm các borrow đang accepted
+
       const borrows = await Borrow.find({ 
         status: 'accepted',
         dueDate: { $exists: true }
