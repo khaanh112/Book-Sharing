@@ -5,49 +5,34 @@ import { useBorrow } from "../../context/BorrowContext";
 import BookApi from "../../api/BookApi";
 import Loading from "../../components/Comon/Loading";
 import { normalizeAuthors, normalizeCategories } from "../../utils/bookUtils";
+import { showError, showSuccess } from "../../utils/toastUtils";
 
 const BookDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { books } = UseBook();
-  const { createBorrow, myRequests, loading: borrowLoading, clearError, fetchAllBorrowData } = useBorrow();
+  const { createBorrow, myRequests, loading: borrowLoading, clearError } = useBorrow();
 
   const [book, setBook] = useState(null);
   const [loading, setLoading] = useState(true);
   const [borrowDays, setBorrowDays] = useState(7);
-  const [message, setMessage] = useState({ text: "", type: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fetch book details và refresh borrow requests
+  // Fetch book details only (no need to fetch all borrow data)
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Fetch book details và refresh borrow requests song song
-        const [bookRes] = await Promise.all([
-          BookApi.getBookById(id),
-          fetchAllBorrowData() // Refresh để đảm bảo có data mới nhất từ DB
-        ]);
+        const bookRes = await BookApi.getBookById(id);
         setBook(bookRes);
       } catch (err) {
-        console.error("Error fetching data:", err);
-        setMessage({ text: "Failed to load book details", type: "error" });
+        showError("❌ Error fetching book details");
       } finally {
         setLoading(false);
       }
     };
     fetchData();
   }, [id]);
-
-  // Clear message after 5 seconds
-  useEffect(() => {
-    if (message.text) {
-      const timer = setTimeout(() => {
-        setMessage({ text: "", type: "" });
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [message]);
 
   // Validate requests array
   const safeRequests = Array.isArray(myRequests) ? myRequests : [];
@@ -80,44 +65,37 @@ const BookDetail = () => {
 
   // Handle borrow request
   const handleBorrow = async () => {
-    // Debug: Log để kiểm tra
-    console.log("🔍 Checking borrow request...");
-    console.log("myRequests:", myRequests);
-    console.log("Current bookId:", id);
-    console.log("alreadyRequested:", alreadyRequested);
+   
     
     // Kiểm tra lại xem đã request chưa (double check)
     if (alreadyRequested) {
-      setMessage({ 
-        text: "You already have a pending request for this book", 
-        type: "error" 
-      });
+      showError("You already have a pending request for this book");
       return;
     }
 
     if (!book?._id) {
-      setMessage({ text: "Book information is missing", type: "error" });
+      showError("Book information is missing");
+      return;
+    }
+
+    if (!book?._id) {
+      showError("Book information is missing");
       return;
     }
 
     if (borrowDays < 1 || borrowDays > 30) {
-      setMessage({ text: "Please enter days between 1-30", type: "error" });
+      showError("Please enter days between 1-30");
       return;
     }
 
     // Kiểm tra sách còn available không
     if (isBorrowedByAnyone) {
-      setMessage({ 
-        text: "This book is no longer available", 
-        type: "error" 
-      });
+      showError("This book is no longer available");
       return;
     }
 
-    // Ngăn double click
     if (isSubmitting) {
-      console.log("⚠️ Already submitting, preventing duplicate request");
-      return;
+      return; // Prevent multiple submissions
     }
 
     try {
@@ -130,20 +108,14 @@ const BookDetail = () => {
       });
       
       if (result?.success) {
-        console.log("✅ Borrow request successful:", result);
-        setMessage({ 
-          text: result.message || "Borrow request sent successfully!", 
-          type: "success" 
-        });
+        showSuccess(result.message || "Borrow request sent successfully!");
         // Disable form sau khi gửi thành công
         setBorrowDays(7); // Reset về default
       }
     } catch (err) {
-      console.error("❌ Borrow error:", err);
-      setMessage({ 
-        text: err?.message || "Failed to create borrow request. Please try again.", 
-        type: "error" 
-      });
+      console.error("Error creating borrow request:", err);
+      const errMsg = err?.message || "Failed to send borrow request";
+      showError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -304,19 +276,6 @@ const BookDetail = () => {
               </div>
             )}
           </div>
-
-          {/* Message Display */}
-          {message.text && (
-            <div
-              className={`mt-6 p-4 rounded-lg text-center font-medium ${
-                message.type === "success"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-700"
-              }`}
-            >
-              {message.text}
-            </div>
-          )}
         </div>
       </div>
     </div>

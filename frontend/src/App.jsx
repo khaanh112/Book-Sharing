@@ -1,4 +1,6 @@
 import { Routes, Route } from "react-router-dom";
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 import MainLayout from "./components/Routes/MainLayout";
 import ProtectedRoute from "./components/Routes/ProtectedRoutes";
@@ -19,17 +21,35 @@ import AddBook from "./pages/MainPages/MyHub/AddBook";
 import Profile from "./pages/MainPages/Profile";
 import BookDetail from "./pages/MainPages/BookDetail";
 import NotificationPage from "./pages/NotificationPage";
-
+import RateLimitNotification from "./components/RateLimitNotification"; // Optional counter
 
 const App = () => {
   return (
-    <Routes>
-      {/* Auth routes -> không layout */}
-      <Route element={<PublicRoute />}>
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/auth/verify-email" element={<VerifyEmail />} />
-        <Route path="/login" element={<Login />} />
-      </Route>
+    <>
+      {/* React Toastify Container */}
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
+      
+      {/* Optional: Rate Limit Counter (có thể bỏ nếu không cần) */}
+      <RateLimitNotification />
+      
+      <Routes>
+        {/* Auth routes -> không layout */}
+        <Route element={<PublicRoute />}>
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/auth/verify-email" element={<VerifyEmail />} />
+          <Route path="/login" element={<Login />} />
+        </Route>
 
       {/* Các route trong layout */}
       <Route element={<MainLayout />}>
@@ -58,6 +78,7 @@ const App = () => {
         
       </Route>
     </Routes>
+    </>
   );
 };
 

@@ -2,13 +2,10 @@ import React, { useState } from "react";
 import { useBorrow } from "../../../context/BorrowContext";
 import Loading from "../../../components/Comon/Loading";
 import { normalizeAuthors, normalizeUserName } from "../../../utils/bookUtils";
-
+import { showError, showSuccess } from "../../../utils/toastUtils";
 const BorrowedBooks = () => {
   const { myBorrows, returnBorrow, loading } = useBorrow();
   const [returningId, setReturningId] = useState(null);
-  const [message, setMessage] = useState({ text: "", type: "" });
-
- 
 
   const handleReturn = async (borrowId) => {
     if (!window.confirm("Are you sure you want to return this book?")) return;
@@ -16,13 +13,13 @@ const BorrowedBooks = () => {
     try {
       setReturningId(borrowId);
       await returnBorrow(borrowId);
-      setMessage({ text: "Book returned successfully!", type: "success" });
+      showSuccess("Book returned successfully! 📖");
     } catch (err) {
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to return book";
+      showError(errorMsg);
       console.error("Error returning book:", err);
-      setMessage({ text: "Failed to return book", type: "error" });
     } finally {
       setReturningId(null);
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     }
   };
 
@@ -31,12 +28,6 @@ const BorrowedBooks = () => {
   // Filter only accepted (active) borrows
   const activeBorrows = myBorrows.filter((borrow) => borrow.status === "accepted");
   
-  console.log("📖 Filtered Active Borrows:", {
-    activeBorrows,
-    count: activeBorrows.length,
-    allStatuses: myBorrows.map(b => ({ id: b._id, status: b.status }))
-  });
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -48,19 +39,6 @@ const BorrowedBooks = () => {
           Books you're currently borrowing from other users
         </p>
       </div>
-
-      {/* Message */}
-      {message.text && (
-        <div
-          className={`p-4 rounded-lg ${
-            message.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
 
       {/* Borrowed Books List */}
       {activeBorrows.length === 0 ? (

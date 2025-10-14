@@ -48,37 +48,23 @@ export const BorrowProvider = ({ children }) => {
       setLoading(true);
       setError(null);
       
-      console.log("🔄 Fetching borrow data...");
-      
       const [borrows, requests, pending] = await Promise.all([
         BorrowApi.getMyBorrows(),
         BorrowApi.getMyBorrowsRequests(),
         BorrowApi.getPendingRequests()
       ]);
       
-      console.log("🔍 Raw API Responses:", {
-        borrows,
-        requests,
-        pending
-      });
-      
+    
       // Backend trả về { status: "success", borrows: [...] }
       const myBorrowsData = Array.isArray(borrows?.data?.borrows) ? borrows.data.borrows : [];
       const myRequestsData = Array.isArray(requests?.data?.borrows) ? requests.data.borrows : [];
       const pendingRequestsData = Array.isArray(pending?.data?.borrows) ? pending.data.borrows : [];
       
-      console.log("✅ Setting State:", {
-        myBorrowsCount: myBorrowsData.length,
-        myRequestsCount: myRequestsData.length,
-        pendingRequestsCount: pendingRequestsData.length
-      });
-      
       setMyBorrows(myBorrowsData);
       setMyRequests(myRequestsData);
       setPendingRequests(pendingRequestsData);
     } catch (err) {
-      console.error("❌ Error fetching borrow data:", err);
-      console.error("❌ Error response:", err?.response);
+  
       setError(err?.response?.data?.message || "Failed to fetch borrow data");
       setMyBorrows([]);
       setMyRequests([]);

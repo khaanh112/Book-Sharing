@@ -2,29 +2,23 @@ import React, { useState } from "react";
 import { useBorrow } from "../../../context/BorrowContext";
 import Loading from "../../../components/Comon/Loading";
 import { normalizeAuthors, normalizeUserName } from "../../../utils/bookUtils";
+import { showError, showSuccess } from "../../../utils/toastUtils";
 
 const BorrowRequests = () => {
   const { pendingRequests, acceptBorrow, rejectBorrow, loading, fetchAllBorrowData } = useBorrow();
   const [processingId, setProcessingId] = useState(null);
-  const [message, setMessage] = useState({ text: "", type: "" });
-
-  console.log("📨 BorrowRequests Component:", { 
-    pendingRequests, 
-    loading,
-    pendingRequestsLength: pendingRequests?.length 
-  });
 
   const handleAccept = async (requestId) => {
     try {
       setProcessingId(requestId);
       await acceptBorrow(requestId);
-      setMessage({ text: "Request accepted successfully!", type: "success" });
+      showSuccess("Request accepted successfully! 🎉");
     } catch (err) {
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to accept request";
+      showError(errorMsg);
       console.error("Error accepting request:", err);
-      setMessage({ text: "Failed to accept request", type: "error" });
     } finally {
       setProcessingId(null);
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     }
   };
 
@@ -34,13 +28,13 @@ const BorrowRequests = () => {
     try {
       setProcessingId(requestId);
       await rejectBorrow(requestId);
-      setMessage({ text: "Request rejected", type: "success" });
+      showSuccess("Request rejected ❌");
     } catch (err) {
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to reject request";
+      showError(errorMsg);
       console.error("Error rejecting request:", err);
-      setMessage({ text: "Failed to reject request", type: "error" });
     } finally {
       setProcessingId(null);
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     }
   };
 
@@ -66,19 +60,6 @@ const BorrowRequests = () => {
           Manage borrow requests from other users for your books
         </p>
       </div>
-
-      {/* Message */}
-      {message.text && (
-        <div
-          className={`p-4 rounded-lg ${
-            message.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
 
       {/* Requests List */}
       {pendingRequests.length === 0 ? (

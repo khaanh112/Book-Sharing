@@ -4,6 +4,7 @@
   import BookCard from "../../../components/BookCard";
   import Loading from "../../../components/Comon/Loading";
   import Resizer from "react-image-file-resizer";
+  import { toast } from 'react-toastify';
 
   const AddBook = () => {
     const { createBook } = UseBook();
@@ -52,11 +53,11 @@ const handleSubmit = async (e) => {
     const start = Date.now();
     await createBook(formData);
     console.log(Date.now() - start + "ms");
-    alert("Book added successfully!");
+    toast.success("✅ Sách đã được thêm thành công!");
     setTitle(""); setAuthors(""); setCategory(""); setDescription(""); setThumbnail(null);
   } catch (err) {
     console.error("❌ Error adding manual book:", err);
-    alert("Error adding book");
+    toast.error("❌ Lỗi khi thêm sách");
   }
 };
 
@@ -69,7 +70,7 @@ const handleSearch = async () => {
     const results = await BookApi.searchBooks(searchQuery);
     setSearchResults(results || []);
   } catch (err) {
-    alert("Error searching books");
+    toast.error("❌ Lỗi khi tìm kiếm sách");
   } finally {
     setLoadingSearch(false);
   }
@@ -86,11 +87,11 @@ const handleAddFromGoogle = async (book) => {
       thumbnail: book.thumbnail || null,
     };
     await createBook(payload);
-    alert(`Book "${book.title}" added successfully!`);
+    toast.success(`✅ Đã thêm "${book.title}" thành công!`);
     setSearchResults(prev => prev.filter(item => item.googleBookId !== book.googleBookId));
   } catch (err) {
     console.error("❌ Error adding book from Google Books:", err);
-    alert("Error adding book from Google Books");
+    toast.error("❌ Lỗi khi thêm sách từ Google Books");
   }
 };
 

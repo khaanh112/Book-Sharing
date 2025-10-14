@@ -117,12 +117,10 @@ const createBook = async (req, res) => {
 
     // Trường hợp 1: upload file
     if (req.file) {
-      const start = Date.now();
 
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "book_thumbnails",
       });
-      console.log(Date.now() - start + "ms");
       thumbnailUrl = result.secure_url;
     }
 

@@ -4,6 +4,15 @@ import { useAuth } from './AuthContext';
 
 const NotificationContext = createContext();
 
+// Cache for unread count - prevent excessive API calls
+let unreadCountCache = {
+  count: 0,
+  timestamp: 0,
+  promise: null
+};
+
+const CACHE_DURATION = 30 * 1000; // 30 seconds (match polling interval)
+
 export const NotificationProvider = ({ children }) => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
@@ -11,13 +20,43 @@ export const NotificationProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch unread count
-  const fetchUnreadCount = async () => {
+  // Fetch unread count with caching
+  const fetchUnreadCount = async (forceRefresh = false) => {
     try {
       if (!user?._id) return;
-      const data = await NotificationApi.getUnreadCount();
-      setUnreadCount(data.unreadCount || 0);
+
+      // Check cache first (unless force refresh)
+      const now = Date.now();
+      if (!forceRefresh && unreadCountCache.count !== null && (now - unreadCountCache.timestamp) < CACHE_DURATION) {
+        console.log('📊 Using cached unread count:', unreadCountCache.count);
+        setUnreadCount(unreadCountCache.count);
+        return;
+      }
+
+      // If already fetching, wait for that request
+      if (unreadCountCache.promise) {
+        console.log('⏳ Waiting for existing unread count request');
+        const data = await unreadCountCache.promise;
+        setUnreadCount(data.unreadCount || 0);
+        return;
+      }
+
+      // Fetch fresh data
+      console.log('🔍 Fetching fresh unread count');
+      const fetchPromise = NotificationApi.getUnreadCount();
+      unreadCountCache.promise = fetchPromise;
+
+      const data = await fetchPromise;
+      const count = data.unreadCount || 0;
+      
+      // Update cache
+      unreadCountCache.count = count;
+      unreadCountCache.timestamp = Date.now();
+      unreadCountCache.promise = null;
+      
+      setUnreadCount(count);
     } catch (err) {
+      unreadCountCache.promise = null;
       console.error('Error fetching unread count:', err);
     }
   };
@@ -52,8 +91,11 @@ export const NotificationProvider = ({ children }) => {
         )
       );
       
-      // Update unread count
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      // Update unread count and cache
+      const newCount = Math.max(0, unreadCount - 1);
+      setUnreadCount(newCount);
+      unreadCountCache.count = newCount;
+      unreadCountCache.timestamp = Date.now();
     } catch (err) {
       console.error('Error marking as read:', err);
     }
@@ -68,7 +110,11 @@ export const NotificationProvider = ({ children }) => {
       setNotifications(prev => 
         prev.map(notif => ({ ...notif, read: true }))
       );
+      
+      // Update unread count and cache
       setUnreadCount(0);
+      unreadCountCache.count = 0;
+      unreadCountCache.timestamp = Date.now();
     } catch (err) {
       console.error('Error marking all as read:', err);
     }
@@ -85,7 +131,10 @@ export const NotificationProvider = ({ children }) => {
       
       // Update unread count if deleted notification was unread
       if (deletedNotif && !deletedNotif.read) {
-        setUnreadCount(prev => Math.max(0, prev - 1));
+        const newCount = Math.max(0, unreadCount - 1);
+        setUnreadCount(newCount);
+        unreadCountCache.count = newCount;
+        unreadCountCache.timestamp = Date.now();
       }
     } catch (err) {
       console.error('Error deleting notification:', err);
@@ -99,6 +148,8 @@ export const NotificationProvider = ({ children }) => {
       
       // Keep only unread notifications
       setNotifications(prev => prev.filter(notif => !notif.read));
+      // Unread count stays the same, just update cache timestamp
+      unreadCountCache.timestamp = Date.now();
     } catch (err) {
       console.error('Error deleting read notifications:', err);
     }
@@ -119,26 +170,24 @@ export const NotificationProvider = ({ children }) => {
 
   // Poll for new notifications every 30 seconds
   useEffect(() => {
-    if (!user?._id) return;
+    if (!user?._id) {
+      // Clear cache when no user
+      unreadCountCache.count = 0;
+      unreadCountCache.timestamp = 0;
+      unreadCountCache.promise = null;
+      return;
+    }
 
+    // Initial fetch (will use cache if available)
     fetchUnreadCount();
     
+    // Poll every 30 seconds (cache prevents duplicate requests)
     const interval = setInterval(() => {
       fetchUnreadCount();
-    }, 30000); // 30 seconds
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [user]);
-
-  // Initial fetch when user changes
-  useEffect(() => {
-    if (user?._id) {
-      fetchUnreadCount();
-    } else {
-      setNotifications([]);
-      setUnreadCount(0);
-    }
-  }, [user]);
+  }, [user?._id]); // Only depend on user ID to prevent unnecessary re-runs
 
   const value = {
     notifications,
@@ -151,7 +200,9 @@ export const NotificationProvider = ({ children }) => {
     markAllAsRead,
     deleteNotification,
     deleteAllRead,
-    getNotificationIcon
+    getNotificationIcon,
+    // Force refresh (bypass cache)
+    refreshUnreadCount: () => fetchUnreadCount(true)
   };
 
   return (

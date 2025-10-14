@@ -11,7 +11,6 @@ import {
 // Tạo yêu cầu mượn sách
 const createBorrow = async (req, res) => {
   try {
-    console.log(req.body);
     const { bookId, dueDate } = req.body;
     const borrowerId = req.user.id;
 

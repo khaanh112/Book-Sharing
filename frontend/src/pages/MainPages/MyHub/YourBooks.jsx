@@ -5,6 +5,7 @@ import { useBorrow } from "../../../context/BorrowContext";
 import bookApi from "../../../api/BookApi";
 import Loading from "../../../components/Comon/Loading";
 import { normalizeAuthors, normalizeCategories } from "../../../utils/bookUtils";
+import { toast } from 'react-toastify';
 
 const YourBooks = () => {
   const { deleteBook, updateBook } = UseBook();
@@ -13,7 +14,6 @@ const YourBooks = () => {
   const [loading, setLoading] = useState(true);
   const [editingBook, setEditingBook] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [message, setMessage] = useState({ text: "", type: "" });
 
   // Lấy sách của riêng user
   useEffect(() => {
@@ -40,25 +40,19 @@ const YourBooks = () => {
 
   const handleDelete = async (bookId) => {
     if (hasPendingRequests(bookId)) {
-      setMessage({ 
-        text: "Cannot delete! This book has pending borrow requests", 
-        type: "error" 
-      });
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
+      toast.warning("⚠️ Không thể xóa! Sách này có yêu cầu mượn đang chờ");
       return;
     }
 
-    if (!window.confirm("Are you sure you want to delete this book?")) return;
+    if (!window.confirm("Bạn có chắc muốn xóa sách này?")) return;
     
     try {
       await deleteBook(bookId);
       setMyBooks((prev) => prev.filter((b) => b._id !== bookId));
-      setMessage({ text: "Book deleted successfully!", type: "success" });
+      toast.success("✅ Đã xóa sách thành công!");
     } catch (err) {
       console.error("Error deleting book:", err);
-      setMessage({ text: "Failed to delete book", type: "error" });
-    } finally {
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
+      toast.error("❌ Lỗi khi xóa sách");
     }
   };
 
@@ -97,12 +91,10 @@ const YourBooks = () => {
 
       setEditingBook(null);
       setEditForm({});
-      setMessage({ text: "Book updated successfully!", type: "success" });
+      toast.success("Đã cập nhật sách thành công!");
     } catch (err) {
       console.error("Error updating book:", err);
-      setMessage({ text: "Failed to update book", type: "error" });
-    } finally {
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
+      toast.error("Lỗi khi cập nhật sách");
     }
   };
 
@@ -119,19 +111,6 @@ const YourBooks = () => {
           Manage your book collection - Edit details or remove books
         </p>
       </div>
-
-      {/* Message */}
-      {message.text && (
-        <div
-          className={`p-4 rounded-lg ${
-            message.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
 
       {/* Books List */}
       {myBooks.length === 0 ? (

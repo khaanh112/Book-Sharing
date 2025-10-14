@@ -1,4 +1,7 @@
 import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import {rateLimit} from 'express-rate-limit';
 import { connectDB } from './config/dbConnection.js';
 import dotenv from 'dotenv';
 import AuthRoutes from './routes/AuthRoutes.js';
@@ -8,8 +11,6 @@ import BookRoutes from './routes/BookRoutes.js';
 import BorrowRoutes from './routes/BorrowRoutes.js';
 import UserRoutes from './routes/UserRoutes.js';
 import NotificationRoutes from './routes/NotificationRoutes.js';
-import cors from 'cors';
-import helmet from 'helmet';
 import { scheduleDueDateNotifications } from './utils/cronJobs.js';
 
 
@@ -17,6 +18,32 @@ dotenv.config();
 connectDB();
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// CORS MUST be applied BEFORE rate limiter
+app.use(cors({
+  origin: process.env.FRONTEND_URL, // domain frontend
+  credentials: true,               // cho phep gui cookie
+  exposedHeaders: ['RateLimit', 'RateLimit-Policy', 'Retry-After'], // Expose rate limit headers
+}));
+
+const limiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
+	standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
+	ipv6Subnet: 56, // Set to 60 or 64 to be less aggressive, or 52 or 48 to be more aggressive
+	// store: ... , // Redis, Memcached, etc. See below.
+	handler: (req, res) => {
+		// CORS headers are already set by cors middleware above
+		res.status(429).json({
+			error: 'Too Many Requests',
+			message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.',
+			retryAfter: Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
+		});
+	}
+});
+
+app.use(limiter);
 
 app.use(helmet({
   // Content Security Policy
@@ -62,11 +89,6 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' })); // Limit JSON body size
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-app.use(cors({
-  origin: process.env.FRONTEND_URL, // domain frontend
-  credentials: true,               // cho phep gui cookie
-}));
 
 app.use('/auth', AuthRoutes);
 app.use('/users', UserRoutes);

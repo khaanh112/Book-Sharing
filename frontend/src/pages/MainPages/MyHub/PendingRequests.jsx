@@ -2,39 +2,27 @@ import React, { useState } from "react";
 import { useBorrow } from "../../../context/BorrowContext";
 import Loading from "../../../components/Comon/Loading";
 import { normalizeAuthors, normalizeUserName } from "../../../utils/bookUtils";
-
+import { showError, showSuccess } from "../../../utils/toastUtils";
 const PendingRequests = () => {
   const { myRequests, loading, fetchAllBorrowData, deleteBorrowRequest } = useBorrow();
   const [deletingId, setDeletingId] = useState(null);
-  const [message, setMessage] = useState({ text: "", type: "" });
-
-  console.log("📋 PendingRequests Component:", { 
-    myRequests, 
-    loading,
-    myRequestsLength: myRequests?.length 
-  });
 
   // Filter only pending requests
   const pendingRequests = myRequests.filter((req) => req.status === "pending");
   
-  console.log("📋 Filtered Pending Requests:", { 
-    pendingRequests, 
-    count: pendingRequests.length 
-  });
-
   const handleCancelRequest = async (requestId) => {
     if (!window.confirm("Are you sure you want to cancel this request?")) return;
     
     try {
       setDeletingId(requestId);
       await deleteBorrowRequest(requestId);
-      setMessage({ text: "Request cancelled successfully!", type: "success" });
+      showSuccess("Request cancelled successfully! ");
     } catch (err) {
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to cancel request";
+      showError(errorMsg);
       console.error("Error cancelling request:", err);
-      setMessage({ text: err.message || "Failed to cancel request", type: "error" });
     } finally {
       setDeletingId(null);
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     }
   };
 
@@ -70,19 +58,6 @@ const PendingRequests = () => {
           Track the status of borrow requests you've sent
         </p>
       </div>
-
-      {/* Message */}
-      {message.text && (
-        <div
-          className={`p-4 rounded-lg ${
-            message.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
 
       {/* Requests List */}
       {pendingRequests.length === 0 ? (

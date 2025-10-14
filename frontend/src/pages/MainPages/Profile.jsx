@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { showSuccess, showError } from "../../utils/toastUtils";
 
 export default function ProfilePage() {
   const { user, updateProfile, changePassword, logout } = useAuth();
@@ -9,7 +10,6 @@ export default function ProfilePage() {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
 
   if (!user) {
     return (
@@ -24,17 +24,14 @@ export default function ProfilePage() {
     e.preventDefault();
     if (newName === user.name) return; // không có thay đổi
     setLoading(true);
-    setMessage(null);
 
     try {
       const updatedUser = await updateProfile({ name: newName });
-      setMessage({ type: "success", text: "Profile updated successfully!" });
+      showSuccess("Profile updated successfully! 👤");
       setNewName(updatedUser.name); // cập nhật lại name sau khi đổi
     } catch (err) {
-      setMessage({
-        type: "error",
-        text: err.response?.data?.message || "Failed to update profile.",
-      });
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to update profile";
+      showError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -44,17 +41,14 @@ export default function ProfilePage() {
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage(null);
     try {
       await changePassword({ oldPassword, newPassword });
-      setMessage({ type: "success", text: "Password changed successfully!" });
+      showSuccess("Password changed successfully! 🔒");
       setOldPassword("");
       setNewPassword("");
     } catch (err) {
-      setMessage({
-        type: "error",
-        text: err.response?.data?.message || "Failed to change password.",
-      });
+      const errorMsg = err?.response?.data?.message || err?.message || "Failed to change password";
+      showError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -124,12 +118,6 @@ export default function ProfilePage() {
               {loading ? "Changing..." : "Change Password"}
             </button>
           </form>
-
-          {message && (
-            <p className={`mt-6 text-center text-sm ${message.type === "success" ? "text-green-600" : "text-red-600"}`}>
-              {message.text}
-            </p>
-          )}
         </div>
       </div>
     </div>
