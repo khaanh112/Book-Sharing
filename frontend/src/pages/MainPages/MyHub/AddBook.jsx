@@ -77,21 +77,26 @@ const handleSearch = async () => {
 };
 
 
-const handleAddFromGoogle = async (book) => {
+const handleAddFromGoogle = async (book, index) => {
   try {
     const payload = {
-      title: book.title,
-      authors: Array.isArray(book.authors) ? book.authors.join(", ") : book.authors,
-      category: Array.isArray(book.categories) ? book.categories.join(", ") : book.categories,
+      title: book.title || "Untitled",
+      authors: book.authors || "Unknown author", // Backend đã join authors thành string rồi
+      category: (Array.isArray(book.categories) && book.categories.length > 0) 
+        ? book.categories[0] 
+        : "",
       description: book.description || "",
-      thumbnail: book.thumbnail || null,
+      thumbnail: book.thumbnail || undefined, // undefined thay vì null để Joi skip
     };
+    
     await createBook(payload);
     toast.success(`✅ Đã thêm "${book.title}" thành công!`);
-    setSearchResults(prev => prev.filter(item => item.googleBookId !== book.googleBookId));
+    // Remove by index to handle duplicate googleBookIds
+    setSearchResults(prev => prev.filter((_, i) => i !== index));
   } catch (err) {
     console.error("❌ Error adding book from Google Books:", err);
-    toast.error("❌ Lỗi khi thêm sách từ Google Books");
+    console.error("❌ Error response:", err.response?.data);
+    toast.error(err.response?.data?.message || "❌ Lỗi khi thêm sách từ Google Books");
   }
 };
 
@@ -122,11 +127,11 @@ const handleAddFromGoogle = async (book) => {
           {loadingSearch && <Loading />}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {searchResults.map(book => (
+            {searchResults.map((book, index) => (
               <BookCard
-                key={book.googleBookId}
+                key={`${book.googleBookId}-${index}`}
                 book={book}
-                onClick={() => handleAddFromGoogle(book)}
+                onClick={() => handleAddFromGoogle(book, index)}
                 actionLabel="Add Book"
               />
             ))}

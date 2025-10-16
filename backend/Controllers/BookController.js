@@ -81,7 +81,11 @@ const searchBooks = async (req, res) => {
 
       return {
         title: volumeInfo.title || "No title",
-        authors: volumeInfo.authors ? volumeInfo.authors.join(", ") : "Unknown author",
+        authors: volumeInfo.authors 
+          ? (volumeInfo.authors.length > 3 
+              ? volumeInfo.authors.slice(0, 3).join(", ") + " et al." 
+              : volumeInfo.authors.join(", "))
+          : (volumeInfo.publisher || volumeInfo.subtitle || "Unknown author"),
         description: volumeInfo.description || "No description",
         thumbnail: volumeInfo.imageLinks?.thumbnail || null, // chỉ lưu URL
         ownerId: null,
