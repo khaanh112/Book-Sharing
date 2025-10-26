@@ -21,7 +21,7 @@ const Login = () => {
       setStatus("Login successful!");
       navigate("/"); // redirect sau khi login
     } catch (err) {
-      setStatus(err.response?.data?.message || "Login failed");
+      setStatus("Invalid email or password");
     }
   };
 

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { searchGoogleBooks, } from "../utils/googleBooks.js";
 import cloudinary from "../config/cloudinary.js";
 import upload from "../middlewares/uploadCloudinary.js";
+import redisClient from "../utils/redisClient.js";
 
 
 /*
@@ -20,12 +21,36 @@ const getAllBooks = async (req, res) => {
   if (authors) { filter.authors = { $regex: authors, $options: "i" }; } 
   if (category) { filter.categories = category; } 
   if (available !== undefined) { filter.available = available === "true"; } 
-  try { 
+
+  // Nếu có filter, không cache
+  if (Object.keys(filter).length > 0) {
+    try { 
+      const books = await Book.find(filter).populate('ownerId', 'name');
+      res.status(200).json(books);
+    } catch (err) { 
+      res.status(500).json({ message: "Server error" }); 
+    }
+    return;
+  }
+
+  // Nếu không có filter, sử dụng cache
+  const cacheKey = 'books:all';
+  try {
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log('📖 Serving from Redis cache');
+      return res.status(200).json(JSON.parse(cached));
+    }
+
   const books = await Book.find(filter).populate('ownerId', 'name');
+  // ioredis: use 'EX' option as positional arguments
+  await redisClient.set(cacheKey, JSON.stringify(books), 'EX', 300); // cache 5 phút
+    console.log('📖 Serving from database and cached');
     res.status(200).json(books);
   } catch (err) { 
     res.status(500).json({ message: "Server error" }); 
-}};
+  }
+};
 
 
 /**
@@ -143,6 +168,8 @@ const createBook = async (req, res) => {
     });
 
     await newBook.save();
+    // Invalidate cache
+    await redisClient.del('books:all');
     res.status(201).json(newBook);
 
   } catch (err) {
@@ -175,11 +202,10 @@ const updateBook = async (req, res) => {
     return res.status(404).json({ message: "Book not found" });
   }
 
+  // Invalidate cache
+  await redisClient.del('books:all');
   res.status(200).json(updatedBook);
 };
-/**
- * Delete book
- */
 const deleteBook = async (req, res) => {
   const { id } = req.params;
   const deletedBook = await Book.findByIdAndDelete(id);
@@ -188,6 +214,8 @@ const deleteBook = async (req, res) => {
     return res.status(404).json({ message: "Book not found" });
   }
 
+  // Invalidate cache
+  await redisClient.del('books:all');
   res.status(200).json({
     message: "Book deleted successfully",
     book: deletedBook,

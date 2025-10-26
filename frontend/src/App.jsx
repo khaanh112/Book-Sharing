@@ -9,7 +9,7 @@ import PublicRoute from "./components/Routes/PublicRoutes";
 import Signup from"./pages/AuthPages/Signup";
 import VerifyEmail from "./pages/AuthPages/verifyEmail";
 import Login from "./pages/AuthPages/Login";
-import Logout from "./pages/AuthPages/Logout";
+
 
 import Home from "./pages/MainPages/Home";
 import MyHubLayout from "./pages/MainPages/MyHub/MyHubLayout";
@@ -69,7 +69,7 @@ const App = () => {
             <Route path="add-book" element={<AddBook />} />
           </Route>
           
-          <Route path="/logout" element={<Logout />} />
+          
           <Route path="/profile" element={<Profile />} />
           <Route path="/bookdetail/:id" element={<BookDetail />} />
           <Route path="/notifications" element={<NotificationPage />} />

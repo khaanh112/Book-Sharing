@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+import redisClient from './utils/redisClient.js';
 import { connectDB } from './config/dbConnection.js';
 import dotenv from 'dotenv';
 import AuthRoutes from './routes/AuthRoutes.js';
@@ -15,7 +17,8 @@ import { scheduleDueDateNotifications } from './utils/cronJobs.js';
 
 
 dotenv.config();
-connectDB();
+// REDIS_URL is provided by docker-compose; ensure dotenv loads local overrides
+await connectDB();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -26,21 +29,29 @@ app.use(cors({
   exposedHeaders: ['RateLimit', 'RateLimit-Policy', 'Retry-After'], // Expose rate limit headers
 }));
 
+const RATE_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || (Number(process.env.RATE_LIMIT_WINDOW_MIN) || 15) * 60 * 1000;
+const RATE_LIMIT = Number(process.env.RATE_LIMIT_LIMIT) || 100;
+
 const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
-	standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
-	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
-	ipv6Subnet: 56, // Set to 60 or 64 to be less aggressive, or 52 or 48 to be more aggressive
-	// store: ... , // Redis, Memcached, etc. See below.
-	handler: (req, res) => {
-		// CORS headers are already set by cors middleware above
-		res.status(429).json({
-			error: 'Too Many Requests',
-			message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.',
-			retryAfter: Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
-		});
-	}
+  windowMs: RATE_WINDOW_MS,
+  limit: RATE_LIMIT,
+  // Use draft-6 to expose individual RateLimit-* headers
+  standardHeaders: 'draft-6',
+  legacyHeaders: false,
+  ipv6Subnet: Number(process.env.RATE_LIMIT_IPV6_SUBNET) || 56,
+  // Use Redis store when redis client available
+  // Pass the existing redis client instance to avoid the store creating its own connection
+  store: new RedisStore({
+    client: redisClient,
+  }),
+  handler: (req, res) => {
+    // CORS headers are already set by cors middleware above
+    res.status(429).json({
+      error: 'Too Many Requests',
+      message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.',
+      retryAfter: Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000),
+    });
+  },
 });
 
 app.use(limiter);
@@ -107,9 +118,11 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  // Khởi động cron job để check due dates
-  scheduleDueDateNotifications();
-});
+(async () => {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    // Khởi động cron job để check due dates
+    scheduleDueDateNotifications();
+  });
+})();
 
