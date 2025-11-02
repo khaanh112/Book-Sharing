@@ -1,4 +1,5 @@
 import Notification from '../models/Notificaion.js';
+import cache from '../utils/cache.js';
 
 /**
  * Lấy tất cả notifications của user
@@ -13,11 +14,17 @@ const getNotifications = async (req, res) => {
       filter.read = false;
     }
 
-    const notifications = await Notification.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(50); // Giới hạn 50 notifications gần nhất
+    const cacheKey = `notifications:list:${userId}:${unreadOnly === 'true' ? 'unread' : 'all'}`;
+    const notifications = await cache.getOrSetJSON(cacheKey, 10, async () => {
+      return await Notification.find(filter).sort({ createdAt: -1 }).limit(50);
+    });
 
-    const unreadCount = await Notification.countDocuments({ userId, read: false });
+    const unreadCountKey = `notifications:unread:${userId}`;
+    let unreadCount = await cache.getJSON(unreadCountKey);
+    if (unreadCount === null) {
+      unreadCount = await Notification.countDocuments({ userId, read: false });
+      await cache.setJSON(unreadCountKey, unreadCount, 10);
+    }
 
     res.status(200).json({
       status: 'success',
@@ -52,6 +59,11 @@ const markAsRead = async (req, res) => {
     notification.read = true;
     await notification.save();
 
+    // Invalidate related notification caches
+    await cache.del(`notifications:list:${userId}:all`);
+    await cache.del(`notifications:list:${userId}:unread`);
+    await cache.del(`notifications:unread:${userId}`);
+
     res.status(200).json({
       status: 'success',
       notification
@@ -76,6 +88,11 @@ const markAllAsRead = async (req, res) => {
       { userId, read: false },
       { read: true }
     );
+
+    // Invalidate related notification caches
+    await cache.del(`notifications:list:${userId}:all`);
+    await cache.del(`notifications:list:${userId}:unread`);
+    await cache.del(`notifications:unread:${userId}`);
 
     res.status(200).json({
       status: 'success',
@@ -106,6 +123,11 @@ const deleteNotification = async (req, res) => {
       });
     }
 
+    // Invalidate related notification caches
+    await cache.del(`notifications:list:${userId}:all`);
+    await cache.del(`notifications:list:${userId}:unread`);
+    await cache.del(`notifications:unread:${userId}`);
+
     res.status(200).json({
       status: 'success',
       message: 'Notification deleted'
@@ -128,6 +150,11 @@ const deleteReadNotifications = async (req, res) => {
 
     const result = await Notification.deleteMany({ userId, read: true });
 
+    // Invalidate related notification caches
+    await cache.del(`notifications:list:${userId}:all`);
+    await cache.del(`notifications:list:${userId}:unread`);
+    await cache.del(`notifications:unread:${userId}`);
+
     res.status(200).json({
       status: 'success',
       message: `${result.deletedCount} notifications deleted`
@@ -147,7 +174,12 @@ const deleteReadNotifications = async (req, res) => {
 const getUnreadCount = async (req, res) => {
   try {
     const userId = req.user.id;
-    const count = await Notification.countDocuments({ userId, read: false });
+    const key = `notifications:unread:${userId}`;
+    let count = await cache.getJSON(key);
+    if (count === null) {
+      count = await Notification.countDocuments({ userId, read: false });
+      await cache.setJSON(key, count, 10);
+    }
 
     res.status(200).json({
       status: 'success',

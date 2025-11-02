@@ -15,6 +15,8 @@ services:
       - MONGODB_URI=mongodb+srv://khaanh:1234@cluster0.10xlcts.mongodb.net/book-sharing
       - PORT=3000
       - REDIS_URL=redis://redis:6379
+      - RATE_LIMIT_ENABLED=false
+      - CACHE_ENABLED=true
     depends_on:
       - redis
 
@@ -27,6 +29,47 @@ services:
       - VITE_API_URL=http://localhost:3000
     depends_on:
       - backend
+
+  locust:
+    image: locustio/locust:2.15.0
+    container_name: booksharing-locust
+    volumes:
+      - ./tests/locust:/mnt/locust
+    ports:
+      - "8089:8089"
+    environment:
+      - LOCUST_USER_EMAIL=${LOCUST_USER_EMAIL}
+      - LOCUST_USER_PASSWORD=${LOCUST_USER_PASSWORD}
+      - LOCUST_HOST=http://backend:3000
+    depends_on:
+      - backend
+    # don't repeat 'locust' because image ENTRYPOINT is already 'locust'
+    command:
+      - "-f"
+      - "/mnt/locust/locustfile.py"
+      - "--host"
+      - "http://backend:3000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: booksharing-prometheus
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:9.5.2
+    container_name: booksharing-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
 
 volumes:
   redis_data: 

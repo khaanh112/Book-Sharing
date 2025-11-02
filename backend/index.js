@@ -14,6 +14,7 @@ import BorrowRoutes from './routes/BorrowRoutes.js';
 import UserRoutes from './routes/UserRoutes.js';
 import NotificationRoutes from './routes/NotificationRoutes.js';
 import { scheduleDueDateNotifications } from './utils/cronJobs.js';
+import { metricsEndpoint, rateLimitBlocked, rateLimitAllowed } from './utils/metrics.js';
 
 
 dotenv.config();
@@ -28,6 +29,9 @@ app.use(cors({
   credentials: true,               // cho phep gui cookie
   exposedHeaders: ['RateLimit', 'RateLimit-Policy', 'Retry-After'], // Expose rate limit headers
 }));
+
+// Register metrics endpoint BEFORE rate limiter (so it's never rate limited)
+app.get('/metrics', metricsEndpoint);
 
 const RATE_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || (Number(process.env.RATE_LIMIT_WINDOW_MIN) || 15) * 60 * 1000;
 const RATE_LIMIT = Number(process.env.RATE_LIMIT_LIMIT) || 100;
@@ -44,7 +48,36 @@ const limiter = rateLimit({
   store: new RedisStore({
     client: redisClient,
   }),
+  // Skip successful requests from counting against the limit (only count errors/abuse)
+  skipSuccessfulRequests: false, // set to true in production to only count failed requests
+  // Skip failed requests (optional - set to true to only count successful requests)
+  skipFailedRequests: false,
+  // IMPORTANT: Skip rate limiting for:
+  // 1. Metrics endpoint (for Prometheus scraping)
+  // 2. Health check endpoint
+  // 3. Any request TO /metrics regardless of source IP
+  skip: (req) => {
+    // Skip metrics and health endpoints
+    if (req.path === '/metrics' || req.path === '/health') {
+      return true;
+    }
+    // Skip if request is from Prometheus container (Docker internal IP)
+    const prometheusIP = req.ip || req.connection?.remoteAddress || '';
+    if (prometheusIP.includes('172.') || prometheusIP.includes('::ffff:172.')) {
+      // Prometheus likely scraping from Docker network
+      if (req.path === '/metrics') return true;
+    }
+    return false;
+  },
   handler: (req, res) => {
+    // Track blocked requests in Prometheus
+    const route = req.route?.path || req.path || 'unknown';
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    rateLimitBlocked.inc({ route, ip });
+    
+    // Log when limit reached
+    console.log(`Rate limit reached for IP: ${ip}, route: ${route}`);
+    
     // CORS headers are already set by cors middleware above
     res.status(429).json({
       error: 'Too Many Requests',
@@ -54,7 +87,14 @@ const limiter = rateLimit({
   },
 });
 
-app.use(limiter);
+// Apply rate limiter only when RATE_LIMIT_ENABLED is not explicitly set to 'false'
+const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED !== 'false';
+if (RATE_LIMIT_ENABLED) {
+  app.use(limiter);
+  console.log(`Rate limiter enabled: ${RATE_LIMIT} requests per ${RATE_WINDOW_MS}ms`);
+} else {
+  console.log('⚠️  Rate limiter disabled via RATE_LIMIT_ENABLED=false');
+}
 
 app.use(helmet({
   // Content Security Policy
@@ -101,6 +141,22 @@ app.use(express.json({ limit: '10mb' })); // Limit JSON body size
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Track allowed requests through rate limiter (for metrics)
+if (RATE_LIMIT_ENABLED) {
+  app.use((req, res, next) => {
+    const originalSend = res.send;
+    res.send = function(data) {
+      // Only increment if not blocked by rate limiter (status !== 429)
+      if (res.statusCode !== 429) {
+        const route = req.route?.path || req.path || 'unknown';
+        rateLimitAllowed.inc({ route });
+      }
+      return originalSend.call(this, data);
+    };
+    next();
+  });
+}
+
 app.use('/auth', AuthRoutes);
 app.use('/users', UserRoutes);
 app.use('/books', BookRoutes);
@@ -110,6 +166,46 @@ app.use('/notifications', NotificationRoutes);
 app.get('/', (req, res) => {
   res.send('Hello World!');
 });
+
+// Health check endpoints
+app.get('/health', async (req, res) => {
+  try {
+    const health = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      redis: 'unknown',
+      database: 'unknown'
+    };
+
+    // Check Redis
+    try {
+      const pong = await redisClient.ping();
+      health.redis = pong === 'PONG' ? 'ok' : 'fail';
+    } catch (err) {
+      health.redis = 'error';
+      health.redisError = err.message;
+    }
+
+    // Check MongoDB (simple check)
+    try {
+      const mongoose = (await import('mongoose')).default;
+      health.database = mongoose.connection.readyState === 1 ? 'ok' : 'disconnected';
+    } catch (err) {
+      health.database = 'error';
+    }
+
+    const statusCode = (health.redis === 'ok' && health.database === 'ok') ? 200 : 503;
+    res.status(statusCode).json(health);
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      error: err.message
+    });
+  }
+});
+
+// Prometheus metrics endpoint already registered before rate limiter (see line ~33)
 
 app.use((req, res, next) => {
   res.status(404);
