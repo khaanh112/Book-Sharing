@@ -41,9 +41,9 @@ const limiter = rateLimit({
   ipv6Subnet: Number(process.env.RATE_LIMIT_IPV6_SUBNET) || 56,
   // Use Redis store when redis client available
   // Pass the existing redis client instance to avoid the store creating its own connection
-  store: new RedisStore({
-    client: redisClient,
-  }),
+  // store: new RedisStore({
+  //   client: redisClient,
+  // }),
   handler: (req, res) => {
     // CORS headers are already set by cors middleware above
     res.status(429).json({

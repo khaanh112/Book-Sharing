@@ -5,15 +5,10 @@ import crypto from "crypto";
 import { sendVerifyEmail } from "../utils/sendVerifyEmail.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/jwt.js";
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../utils/cookie.js";
-
-
-
-
+import redisClient from "../utils/redisClient.js"; // Redis client
 
 // Register
 const registerUser = async (req, res) => {
-
-
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     throw new Error("All fields are mandatory");
@@ -30,26 +25,23 @@ const registerUser = async (req, res) => {
   await sendVerifyEmail(email, verifyToken, { name, email, passwordHash });
 
   res.status(200).json({ status: "success", message: "Please check your email to verify." });
-
 };
 
+// Verify Email
 const verifyEmail = async (req, res) => {
   const { token, user } = req.query;
   if (!token || !user) {
     res.status(400);
     throw new Error("Invalid verification link");
   }
-  // Giải mã thông tin user
   const userData = JSON.parse(Buffer.from(user, "base64").toString("utf8"));
 
-  // Kiểm tra lại email đã tồn tại chưa
   const userAvailable = await User.findOne({ email: userData.email });
   if (userAvailable) {
     res.status(400);
     throw new Error("User already registered by this email!");
-   }
+  }
 
-  // Lưu user vào DB, đã xác thực
   const newUser = await User.create({
     name: userData.name,
     email: userData.email,
@@ -57,8 +49,6 @@ const verifyEmail = async (req, res) => {
   });
 
   res.status(200).json({ status: "success", message: "Email verified and account created!" });
- 
- 
 };
 
 // Login
@@ -70,7 +60,6 @@ const loginUser = async (req, res) => {
   }
   const user = await User.findOne({ email });
   if (user && (await bcrypt.compare(password, user.passwordHash))) {
-    
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
@@ -109,7 +98,7 @@ const refreshToken = async (req, res) => {
   }
 };
 
-// Get Current User 
+// Get Current User
 const currentUser = async (req, res) => {
   if (!req.user) {
     res.status(401);
@@ -118,15 +107,33 @@ const currentUser = async (req, res) => {
   res.status(200).json(req.user);
 };
 
-
-// Logout
+// Logout với JWT blacklist (cookie)
 const logoutUser = async (req, res) => {
-  res.clearCookie("refreshToken");
-  res.clearCookie("accessToken");
-  res.status(200).json({ message: "User logged out successfully" });
+  try {
+    // Lấy token từ cookie
+    const token = req.cookies.accessToken;
+
+    // Xóa cookie
+    res.clearCookie("refreshToken");
+    res.clearCookie("accessToken");
+
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.exp) {
+        const now = Math.floor(Date.now() / 1000);
+        const ttl = decoded.exp - now; // thời gian còn lại
+        if (ttl > 0) {
+          // Lưu token vào Redis blacklist với TTL
+          await redisClient.set(`jwt:blacklist:${token}`, "true", "EX", ttl);
+        }
+      }
+    }
+
+    res.status(200).json({ message: "User logged out successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };
 
-
-
-
-export { registerUser, verifyEmail, loginUser, refreshToken, currentUser, logoutUser,  };
+export { registerUser, verifyEmail, loginUser, refreshToken, currentUser, logoutUser };

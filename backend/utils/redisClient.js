@@ -3,7 +3,7 @@ import Redis from 'ioredis'
 // Create a singleton Redis client instance and export it.
 // Using a singleton ensures every module that imports this file
 // uses the same connection and can call get/set/del directly.
-const url = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'redis'}:${process.env.REDIS_PORT || 6379}`
+const url = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`
 
 const client = new Redis(url)
 

@@ -12,45 +12,106 @@ import redisClient from "../utils/redisClient.js";
 
 
 const getAllBooks = async (req, res) => {
-  const { q, authors, category, available } = req.query; 
-  const filter = {}; 
-  if (q) { 
-  filter.$or = [ { title: { $regex: q, $options: "i" } }, { description: { $regex: q, $options: "i" } }, ]; 
-  } 
-  
-  if (authors) { filter.authors = { $regex: authors, $options: "i" }; } 
-  if (category) { filter.categories = category; } 
-  if (available !== undefined) { filter.available = available === "true"; } 
+  const { q, authors, category, available, page = 1 } = req.query;
 
-  // Nếu có filter, không cache
-  if (Object.keys(filter).length > 0) {
-    try { 
-      const books = await Book.find(filter).populate('ownerId', 'name');
-      res.status(200).json(books);
-    } catch (err) { 
-      res.status(500).json({ message: "Server error" }); 
-    }
-    return;
+  const filter = {};
+
+  if (q) {
+    filter.$or = [
+      { title: { $regex: q, $options: "i" } },
+      { description: { $regex: q, $options: "i" } },
+    ];
   }
 
-  // Nếu không có filter, sử dụng cache
-  const cacheKey = 'books:all';
+  if (authors) {
+    filter.authors = { $regex: authors, $options: "i" };
+  }
+
+  if (category) {
+    filter.categories = category;
+  }
+
+  if (available !== undefined) {
+    filter.available = available === "true";
+  }
+
+  // Luôn 12 items/trang
+  const limitNum = 12;
+  const pageNum = parseInt(page, 10);      // Số trang hiện tại
+  const skip = (pageNum - 1) * limitNum;   // Bỏ qua số phần tử của trang trước đó
+
+  const isFiltered = Object.keys(filter).length > 0;
+
   try {
+    // Nếu có filter → không dùng cache
+    if (isFiltered) {
+      const [books, total] = await Promise.all([
+        Book.find(filter)
+          .skip(skip)
+          .limit(limitNum)
+          .populate('ownerId', 'name'),
+
+        Book.countDocuments(filter)
+      ]);
+
+      return res.status(200).json({
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+        data: books,
+      });
+    }
+
+    /* 
+    Redis cache
+
+    const cacheKey = `books:all:page=${pageNum}:limit=${limitNum}`;
     const cached = await redisClient.get(cacheKey);
+
     if (cached) {
-      console.log('📖 Serving from Redis cache');
+      console.log("Serving paginated data from cache");
       return res.status(200).json(JSON.parse(cached));
     }
+    */
 
-  const books = await Book.find(filter).populate('ownerId', 'name');
-  // ioredis: use 'EX' option as positional arguments
-  await redisClient.set(cacheKey, JSON.stringify(books), 'EX', 300); // cache 5 phút
-    console.log('📖 Serving from database and cached');
-    res.status(200).json(books);
-  } catch (err) { 
-    res.status(500).json({ message: "Server error" }); 
+    // Không filter → lấy trực tiếp từ DB (không cache)
+    const [books, total] = await Promise.all([
+      Book.find({})
+        .skip(skip)
+        .limit(limitNum)
+        .populate('ownerId', 'name'),
+
+      Book.countDocuments({})
+    ]);
+
+    const responseData = {
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+      data: books,
+    };
+
+    /*
+    Lưu cache
+
+    await redisClient.set(cacheKey, JSON.stringify(responseData), "EX", 300);
+    console.log("Serving paginated data from DB and cached");
+    */
+
+    return res.status(200).json(responseData);
+
+  } catch (err) {
+    console.error("getAllBooks ERROR:", err);
+    return res.status(500).json({ 
+      message: "Server error", 
+      error: err.message 
+    });
   }
 };
+
+
 
 
 /**
