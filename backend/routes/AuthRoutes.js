@@ -3,7 +3,7 @@ import { currentUser, loginUser, logoutUser, registerUser, verifyEmail, refreshT
 import validateToken from "../middlewares/validateTokenHandler.js";
 import validateRequest from "../middlewares/validateRequest.js";
 import { registerBody, loginBody, verifyQuery } from "../validators/auth.js";
-
+import checkBlacklist from "../middlewares/checkBlacklist.js";
 
 
 const router = Router();
@@ -16,5 +16,7 @@ router.get("/refresh-token", refreshToken);
 router.get("/current", validateToken, currentUser);
 
 router.get("/logout", validateToken, logoutUser);
+
+router.get("/current", validateToken, checkBlacklist, currentUser);
 
 export default router;

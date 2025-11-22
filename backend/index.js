@@ -45,30 +45,9 @@ const limiter = rateLimit({
   ipv6Subnet: Number(process.env.RATE_LIMIT_IPV6_SUBNET) || 56,
   // Use Redis store when redis client available
   // Pass the existing redis client instance to avoid the store creating its own connection
-  store: new RedisStore({
-    client: redisClient,
-  }),
-  // Skip successful requests from counting against the limit (only count errors/abuse)
-  skipSuccessfulRequests: false, // set to true in production to only count failed requests
-  // Skip failed requests (optional - set to true to only count successful requests)
-  skipFailedRequests: false,
-  // IMPORTANT: Skip rate limiting for:
-  // 1. Metrics endpoint (for Prometheus scraping)
-  // 2. Health check endpoint
-  // 3. Any request TO /metrics regardless of source IP
-  skip: (req) => {
-    // Skip metrics and health endpoints
-    if (req.path === '/metrics' || req.path === '/health') {
-      return true;
-    }
-    // Skip if request is from Prometheus container (Docker internal IP)
-    const prometheusIP = req.ip || req.connection?.remoteAddress || '';
-    if (prometheusIP.includes('172.') || prometheusIP.includes('::ffff:172.')) {
-      // Prometheus likely scraping from Docker network
-      if (req.path === '/metrics') return true;
-    }
-    return false;
-  },
+  // store: new RedisStore({
+  //   client: redisClient,
+  // }),
   handler: (req, res) => {
     // Track blocked requests in Prometheus
     const route = req.route?.path || req.path || 'unknown';
