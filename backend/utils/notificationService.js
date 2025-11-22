@@ -1,5 +1,6 @@
 import Notification from '../models/Notificaion.js';
 import { sendNotificationEmail } from './sendNotificationEmail.js';
+import cache from './cache.js';
 
 /**
  * Tạo notification và gửi email (chỉ gửi email cho due date notifications)
@@ -17,6 +18,16 @@ const createNotification = async ({ userId, type, title, message, relatedId, boo
       senderName,
       read: false
     });
+
+    // Invalidate unread count and list caches for the user (best-effort)
+    try {
+      await cache.del(`notifications:unread:${userId}`);
+      await cache.del(`notifications:list:${userId}:all`);
+      await cache.del(`notifications:list:${userId}:unread`);
+    } catch (err) {
+      // non-fatal
+      console.error('Failed to invalidate notification cache for user', userId, err.message || err);
+    }
 
     // Chỉ gửi email cho due date notifications
     if (sendEmail) {

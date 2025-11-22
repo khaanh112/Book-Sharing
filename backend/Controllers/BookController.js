@@ -3,14 +3,13 @@ import mongoose from "mongoose";
 import { searchGoogleBooks, } from "../utils/googleBooks.js";
 import cloudinary from "../config/cloudinary.js";
 import upload from "../middlewares/uploadCloudinary.js";
-import redisClient from "../utils/redisClient.js";
+import cache from "../utils/cache.js";
 
 
-/*
- * Get all books in DB
+/**
+ * Get all books with optional filters
+ * Uses cache when no filters applied
  */
-
-
 const getAllBooks = async (req, res) => {
   const { q, authors, category, available, page = 1 } = req.query;
 
@@ -124,10 +123,8 @@ const getMyBooks = async (req, res) => {
 };
 
 /**
- * Get single book by id
+ * Get single book by ID with caching
  */
-
-
 const getBookById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -136,8 +133,10 @@ const getBookById = async (req, res) => {
       return res.status(400).json({ message: "Invalid book ID" });
     }
 
-    // Populate để lấy name (và email nếu muốn)
-    const book = await Book.findById(id).populate("ownerId", "name");
+    const cacheKey = `book:${id}`;
+    const book = await cache.getOrSetJSON(cacheKey, 300, async () => {
+      return await Book.findById(id).populate("ownerId", "name");
+    });
 
     if (!book) {
       return res.status(404).json({ message: "Book not found" });
@@ -145,7 +144,6 @@ const getBookById = async (req, res) => {
 
     res.status(200).json(book);
   } catch (error) {
-    console.error("Error fetching book:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -153,6 +151,9 @@ const getBookById = async (req, res) => {
 
 
 
+/**
+ * Search books from Google Books API with caching
+ */
 const searchBooks = async (req, res) => {
   const { q } = req.query;
   if (!q) {
@@ -160,7 +161,10 @@ const searchBooks = async (req, res) => {
   }
 
   try {
-    const data = await searchGoogleBooks(q);
+    const cacheKey = `google:search:${q}`;
+    const data = await cache.getOrSetJSON(cacheKey, 300, async () => {
+      return await searchGoogleBooks(q);
+    });
 
     const books = (data.items || []).map((item) => {
       const volumeInfo = item.volumeInfo;
@@ -173,7 +177,7 @@ const searchBooks = async (req, res) => {
               : volumeInfo.authors.join(", "))
           : (volumeInfo.publisher || volumeInfo.subtitle || "Unknown author"),
         description: volumeInfo.description || "No description",
-        thumbnail: volumeInfo.imageLinks?.thumbnail || null, // chỉ lưu URL
+        thumbnail: volumeInfo.imageLinks?.thumbnail || null,
         ownerId: null,
         available: true,
         categories: volumeInfo.categories || [],
@@ -183,7 +187,6 @@ const searchBooks = async (req, res) => {
 
     res.status(200).json(books);
   } catch (err) {
-    console.error("Google Books search error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -193,28 +196,23 @@ const searchBooks = async (req, res) => {
  */
 const createBook = async (req, res) => {
   try {
-    const starttime = Date.now();
-
     const { title, authors, category, description, thumbnail } = req.body;
     const ownerId = req.user?.id;
 
     if (!title || !authors) {
-      console.warn("⚠️ Missing required fields:", { title, authors });
       return res.status(400).json({ message: "Title and author are required" });
     }
 
     let thumbnailUrl = null;
 
-    // Trường hợp 1: upload file
+    // Case 1: File upload
     if (req.file) {
-
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "book_thumbnails",
       });
       thumbnailUrl = result.secure_url;
     }
-
-    // Trường hợp 2: truyền sẵn URL (Google Books)
+    // Case 2: URL provided (Google Books)
     else if (thumbnail) { 
       thumbnailUrl = thumbnail;
     }
@@ -229,10 +227,12 @@ const createBook = async (req, res) => {
     });
 
     await newBook.save();
+    
     // Invalidate cache
-    await redisClient.del('books:all');
+    await cache.del('books:all');
+    await cache.del(`book:${newBook._id}`);
+    
     res.status(201).json(newBook);
-
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -240,7 +240,7 @@ const createBook = async (req, res) => {
 
 
 /**
- * Update book
+ * Update book and invalidate cache
  */
 const updateBook = async (req, res) => {
   const { id } = req.params;
@@ -254,7 +254,7 @@ const updateBook = async (req, res) => {
       description,
       available,
       categories,
-      ...(thumbnailUrl ? { thumbnail: thumbnailUrl } : {}), // chỉ update nếu có URL mới
+      ...(thumbnailUrl ? { thumbnail: thumbnailUrl } : {}),
     },
     { new: true }
   );
@@ -264,9 +264,15 @@ const updateBook = async (req, res) => {
   }
 
   // Invalidate cache
-  await redisClient.del('books:all');
+  await cache.del('books:all');
+  await cache.del(`book:${id}`);
+  
   res.status(200).json(updatedBook);
 };
+
+/**
+ * Delete book and invalidate cache
+ */
 const deleteBook = async (req, res) => {
   const { id } = req.params;
   const deletedBook = await Book.findByIdAndDelete(id);
@@ -276,7 +282,9 @@ const deleteBook = async (req, res) => {
   }
 
   // Invalidate cache
-  await redisClient.del('books:all');
+  await cache.del('books:all');
+  await cache.del(`book:${id}`);
+  
   res.status(200).json({
     message: "Book deleted successfully",
     book: deletedBook,

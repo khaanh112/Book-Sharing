@@ -7,6 +7,7 @@ import {
   notifyBorrowRejected,
   notifyBookReturned
 } from '../utils/notificationService.js';
+import cache from '../utils/cache.js';
 
 // Tạo yêu cầu mượn sách
 const createBorrow = async (req, res) => {
@@ -76,6 +77,11 @@ const createBorrow = async (req, res) => {
       borrow._id
     ).catch(err => console.error('Notification error:', err));
 
+    // Invalidate cache for borrower & owner lists
+    await cache.del(`borrows:borrower:${borrowerId}`);
+    await cache.del(`borrows:owner:${String(book.ownerId)}`);
+    await cache.del(`borrow:${borrow._id}`);
+
     return res.status(201).json({
       status: "success",
       message: "Borrow request created successfully",
@@ -127,6 +133,13 @@ const acceptBorrow = async (req, res) => {
     borrow._id
   ).catch(err => console.error('Notification error:', err));
 
+  // Invalidate related caches: borrow record and user lists, also book cache since availability changed
+  await cache.del(`borrow:${id}`);
+  await cache.del(`borrows:borrower:${String(borrow.borrowerId)}`);
+  await cache.del(`borrows:owner:${String(borrow.ownerId)}`);
+  await cache.del(`book:${String(borrow.bookId)}`);
+  await cache.del('books:all');
+
   res.status(200).json({ status: "success", borrow });
 };
 
@@ -157,6 +170,13 @@ const returnBorrow = async (req, res) => {
     borrow._id
   ).catch(err => console.error('Notification error:', err));
 
+  // Invalidate caches
+  await cache.del(`borrow:${id}`);
+  await cache.del(`borrows:borrower:${String(borrow.borrowerId)}`);
+  await cache.del(`borrows:owner:${String(borrow.ownerId)}`);
+  await cache.del(`book:${String(borrow.bookId)}`);
+  await cache.del('books:all');
+
   res.status(200).json({ status: "success", borrow });
 };
 
@@ -183,36 +203,53 @@ const rejectBorrow = async (req, res) => {
     borrow._id
   ).catch(err => console.error('Notification error:', err));
 
+  // Invalidate caches
+  await cache.del(`borrow:${id}`);
+  await cache.del(`borrows:borrower:${String(borrow.borrowerId)}`);
+  await cache.del(`borrows:owner:${String(borrow.ownerId)}`);
+
   res.status(200).json({ status: "success", borrow });
 };
 
 // Lấy yêu cầu mượn của chính mình (đã gửi)
 const getMyBorrowRequests = async (req, res) => {
-  const borrows = await Borrow.find({ borrowerId: req.user.id })
-    .populate('bookId ownerId');  // Add ownerId
+  const key = `borrows:borrower:${req.user.id}:requests`;
+  const borrows = await cache.getOrSetJSON(key, 30, async () => {
+    return await Borrow.find({ borrowerId: req.user.id }).populate('bookId ownerId');
+  });
   res.status(200).json({ status: "success", borrows });
 };
 
 // Lấy sách mình đang mượn
 const getMyBorrows = async (req, res) => {
-  const borrows = await Borrow.find({ 
-    borrowerId: req.user.id,
-    status: "accepted"  // Only borrowed books
-  }).populate('bookId ownerId');
+  const key = `borrows:borrower:${req.user.id}:accepted`;
+  const borrows = await cache.getOrSetJSON(key, 30, async () => {
+    return await Borrow.find({ 
+      borrowerId: req.user.id,
+      status: "accepted"
+    }).populate('bookId ownerId');
+  });
   res.status(200).json({ status: "success", borrows });
 };
 
 // Lấy các yêu cầu mượn đang pending (chủ sách xem)
 const getPendingRequests = async (req, res) => {
-  const borrows = await Borrow.find({ ownerId: req.user.id, status: "pending" }).populate('bookId borrowerId');
+  const key = `borrows:owner:${req.user.id}:pending`;
+  const borrows = await cache.getOrSetJSON(key, 30, async () => {
+    return await Borrow.find({ ownerId: req.user.id, status: "pending" }).populate('bookId borrowerId');
+  });
   res.status(200).json({ status: "success", borrows });
 };
 
 // Lấy chi tiết một yêu cầu mượn
 const getBorrowById = async (req, res) => {
   const { id } = req.params;
-  const borrow = await Borrow.findById(id).populate('bookId borrowerId ownerId');
-  if (!borrow) throw new Error("Borrow request not found");
+  const key = `borrow:${id}`;
+  const borrow = await cache.getOrSetJSON(key, 60, async () => {
+    const b = await Borrow.findById(id).populate('bookId borrowerId ownerId');
+    if (!b) throw new Error('Borrow request not found');
+    return b;
+  });
   res.status(200).json({ status: "success", borrow });
 };
 
