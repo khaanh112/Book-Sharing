@@ -1,4 +1,5 @@
 import express from 'express';
+import os from 'os';
 import cors from 'cors';
 import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
@@ -6,6 +7,7 @@ import RedisStore from 'rate-limit-redis';
 import redisClient from './utils/redisClient.js';
 import { connectDB } from './config/dbConnection.js';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose'; // Import mongoose để đóng kết nối sạch sẽ
 import AuthRoutes from './routes/AuthRoutes.js';
 import cookieParser from 'cookie-parser';
 import errorHandler from './middlewares/errHandler.js';
@@ -21,6 +23,14 @@ dotenv.config();
 // REDIS_URL is provided by docker-compose; ensure dotenv loads local overrides
 await connectDB();
 const app = express();
+
+app.use((req, res, next) => {
+    const serverName = os.hostname();
+    // Dùng console.error để tránh bị buffer (in ra ngay lập tức)
+    console.error(`👉 [${serverName}] Request: ${req.method} ${req.url}`);
+    next(); 
+});
+
 const PORT = process.env.PORT || 3000;
 
 // CORS MUST be applied BEFORE rate limiter
@@ -33,46 +43,53 @@ app.use(cors({
 // Register metrics endpoint BEFORE rate limiter (so it's never rate limited)
 app.get('/metrics', metricsEndpoint);
 
-const RATE_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || (Number(process.env.RATE_LIMIT_WINDOW_MIN) || 15) * 60 * 1000;
+const RATE_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
 const RATE_LIMIT = Number(process.env.RATE_LIMIT_LIMIT) || 100;
-
-const limiter = rateLimit({
-  windowMs: RATE_WINDOW_MS,
-  limit: RATE_LIMIT,
-  // Use draft-6 to expose individual RateLimit-* headers
-  standardHeaders: 'draft-6',
-  legacyHeaders: false,
-  ipv6Subnet: Number(process.env.RATE_LIMIT_IPV6_SUBNET) || 56,
-  // Use Redis store when redis client available
-  // Pass the existing redis client instance to avoid the store creating its own connection
-  // store: new RedisStore({
-  //   client: redisClient,
-  // }),
-  handler: (req, res) => {
-    // Track blocked requests in Prometheus
-    const route = req.route?.path || req.path || 'unknown';
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    rateLimitBlocked.inc({ route, ip });
-    
-    // Log when limit reached
-    console.log(`Rate limit reached for IP: ${ip}, route: ${route}`);
-    
-    // CORS headers are already set by cors middleware above
-    res.status(429).json({
-      error: 'Too Many Requests',
-      message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.',
-      retryAfter: Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000),
-    });
-  },
-});
-
-// Apply rate limiter only when RATE_LIMIT_ENABLED is not explicitly set to 'false'
 const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED !== 'false';
+
 if (RATE_LIMIT_ENABLED) {
+  const limiter = rateLimit({
+    windowMs: RATE_WINDOW_MS,
+    limit: RATE_LIMIT,
+    standardHeaders: 'draft-6',
+    legacyHeaders: false,
+    // QUAN TRỌNG: Sử dụng Redis Store để đồng bộ counter giữa các instances
+    store: new RedisStore({
+      // @ts-ignore
+      sendCommand: (...args) => redisClient.sendCommand(args),
+    }),
+    handler: (req, res) => {
+      const route = req.route?.path || req.path || 'unknown';
+      const ip = req.ip || req.connection.remoteAddress || 'unknown';
+      rateLimitBlocked.inc({ route, ip });
+      
+      console.warn(`Rate limit reached for IP: ${ip}, route: ${route}`);
+      
+      res.status(429).json({
+        error: 'Too Many Requests',
+        message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.',
+        retryAfter: Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000),
+      });
+    },
+  });
+
   app.use(limiter);
-  console.log(`Rate limiter enabled: ${RATE_LIMIT} requests per ${RATE_WINDOW_MS}ms`);
+  console.log(`✅ Rate limiter enabled with Redis Store: ${RATE_LIMIT} reqs / ${RATE_WINDOW_MS}ms`);
+
+  // Middleware track allowed requests for metrics
+  app.use((req, res, next) => {
+    const originalSend = res.send;
+    res.send = function(data) {
+      if (res.statusCode !== 429) {
+        const route = req.route?.path || req.path || 'unknown';
+        rateLimitAllowed.inc({ route });
+      }
+      return originalSend.call(this, data);
+    };
+    next();
+  });
 } else {
-  console.log('⚠️  Rate limiter disabled via RATE_LIMIT_ENABLED=false');
+  console.log('⚠️ Rate limiter disabled');
 }
 
 app.use(helmet({
@@ -148,39 +165,35 @@ app.get('/', (req, res) => {
 
 // Health check endpoints
 app.get('/health', async (req, res) => {
-  try {
-    const health = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      redis: 'unknown',
-      database: 'unknown'
-    };
+  const health = {
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    status: 'OK',
+    redis: 'Unknown',
+    database: 'Unknown'
+  };
 
+  try {
     // Check Redis
     try {
-      const pong = await redisClient.ping();
-      health.redis = pong === 'PONG' ? 'ok' : 'fail';
-    } catch (err) {
-      health.redis = 'error';
-      health.redisError = err.message;
+      await redisClient.ping();
+      health.redis = 'Connected';
+    } catch (e) {
+      health.redis = 'Disconnected';
+      health.status = 'Degraded';
     }
 
-    // Check MongoDB (simple check)
-    try {
-      const mongoose = (await import('mongoose')).default;
-      health.database = mongoose.connection.readyState === 1 ? 'ok' : 'disconnected';
-    } catch (err) {
-      health.database = 'error';
-    }
+    // Check Mongo
+    const dbState = mongoose.connection.readyState; // 0: disconnected, 1: connected, 2: connecting, 3: disconnecting
+    health.database = dbState === 1 ? 'Connected' : 'Disconnected';
+    if (dbState !== 1) health.status = 'Degraded';
 
-    const statusCode = (health.redis === 'ok' && health.database === 'ok') ? 200 : 503;
-    res.status(statusCode).json(health);
-  } catch (err) {
-    res.status(500).json({
-      status: 'error',
-      error: err.message
-    });
+    const httpCode = health.status === 'OK' ? 200 : 503;
+    res.status(httpCode).json(health);
+  } catch (error) {
+    health.status = 'Error';
+    health.error = error.message;
+    res.status(503).json(health);
   }
 });
 
@@ -193,11 +206,45 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-(async () => {
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    // Khởi động cron job để check due dates
-    scheduleDueDateNotifications();
-  });
-})();
+const server = app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+  scheduleDueDateNotifications();
+});
 
+// Hàm xử lý tắt server an toàn
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  // 1. Ngừng nhận request mới, nhưng xử lý nốt request đang chạy
+  server.close(async () => {
+    console.log('HTTP server closed.');
+
+    try {
+      // 2. Đóng kết nối Database
+      await mongoose.connection.close(false);
+      console.log('MongoDB connection closed.');
+
+      // 3. Đóng kết nối Redis (nếu cần thiết, tuỳ client configuration)
+      if (redisClient.isOpen) {
+          await redisClient.disconnect();
+          console.log('Redis connection closed.');
+      }
+
+      console.log('Graceful shutdown completed.');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error during shutdown:', err);
+      process.exit(1);
+    }
+  });
+
+  // Force shutdown sau 10s nếu server bị treo không đóng được
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+// Lắng nghe tín hiệu từ hệ thống/Docker
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

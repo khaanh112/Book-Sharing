@@ -8,9 +8,12 @@ services:
       - redis_data:/data
   backend:
     build: ./backend
-    container_name: booksharing-backend
-    ports:
-      - "3000:3000"
+    # container_name: booksharing-backend
+    expose:
+      - "3000"
+    deploy:
+      mode: replicated
+      replicas: 3 # Chạy 3 instance backend cùng lúc
     environment:
       - MONGODB_URI=mongodb+srv://khaanh:1234@cluster0.10xlcts.mongodb.net/book-sharing
       - PORT=3000
@@ -19,6 +22,21 @@ services:
       - CACHE_ENABLED=true
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "3000:80" # Map port 3000 của máy bạn vào port 80 của Nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
 
   frontend:
     build: ./frontend
