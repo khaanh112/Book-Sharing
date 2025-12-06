@@ -68,7 +68,9 @@ const handleSearch = async () => {
   setLoadingSearch(true);
   try {
     const results = await BookApi.searchBooks(searchQuery);
-    setSearchResults(results || []);
+    // Handle CQRS response format: {books: [...], searchTerm, ...}
+    const bookData = Array.isArray(results) ? results : (results.books || results.data || []);
+    setSearchResults(bookData);
   } catch (err) {
     toast.error("❌ Lỗi khi tìm kiếm sách");
   } finally {

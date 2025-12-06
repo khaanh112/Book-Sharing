@@ -4,24 +4,40 @@ import cors from 'cors';
 import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import redisClient from './utils/redisClient.js';
+import redisClient from './shared/utils/redisClient.js';
 import { connectDB } from './config/dbConnection.js';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose'; // Import mongoose để đóng kết nối sạch sẽ
-import AuthRoutes from './routes/AuthRoutes.js';
 import cookieParser from 'cookie-parser';
-import errorHandler from './middlewares/errHandler.js';
-import BookRoutes from './routes/BookRoutes.js';
-import BorrowRoutes from './routes/BorrowRoutes.js';
-import UserRoutes from './routes/UserRoutes.js';
-import NotificationRoutes from './routes/NotificationRoutes.js';
-import { scheduleDueDateNotifications } from './utils/cronJobs.js';
-import { metricsEndpoint, rateLimitBlocked, rateLimitAllowed } from './utils/metrics.js';
+import errorHandler from './shared/middlewares/errHandler.js';
+// Import from modular structure
+import { authRoutes } from './modules/auth/index.js';
+import { bookRoutes } from './modules/books/index.js';
+import { borrowRoutes } from './modules/borrowing/index.js';
+import { userRoutes } from './modules/users/index.js';
+import { notificationRoutes } from './modules/notifications/index.js';
+import { scheduleDueDateNotifications } from './shared/utils/cronJobs.js';
+import { 
+  metricsEndpoint, 
+  rateLimitBlocked, 
+  rateLimitAllowed,
+  httpRequestsTotal,
+  httpRequestDuration
+} from './shared/utils/metrics.js';
 
 
 dotenv.config();
 // REDIS_URL is provided by docker-compose; ensure dotenv loads local overrides
 await connectDB();
+
+// Initialize CQRS Pattern
+import initializeCQRS from './cqrs/bootstrap.js';
+initializeCQRS();
+
+// Initialize Event-Driven Architecture
+import registerAllListeners from './shared/events/registerListeners.js';
+registerAllListeners();
+
 const app = express();
 
 app.use((req, res, next) => {
@@ -137,30 +153,79 @@ app.use(express.json({ limit: '10mb' })); // Limit JSON body size
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Track allowed requests through rate limiter (for metrics)
-if (RATE_LIMIT_ENABLED) {
-  app.use((req, res, next) => {
-    const originalSend = res.send;
-    res.send = function(data) {
-      // Only increment if not blocked by rate limiter (status !== 429)
-      if (res.statusCode !== 429) {
-        const route = req.route?.path || req.path || 'unknown';
-        rateLimitAllowed.inc({ route });
-      }
-      return originalSend.call(this, data);
-    };
-    next();
-  });
-}
+// Metrics tracking middleware - track ALL requests (must be BEFORE routes)
+app.use((req, res, next) => {
+  // Skip metrics endpoint itself to avoid recursion
+  if (req.path === '/metrics') return next();
+  
+  const start = Date.now();
+  const hostname = os.hostname();
+  
+  // Capture response - only wrap once
+  const originalSend = res.send;
+  const originalJson = res.json;
+  
+  const recordMetrics = function() {
+    const duration = Date.now() - start;
+    const route = req.route?.path || req.path || 'unknown';
+    const method = req.method;
+    const status = res.statusCode;
+    
+    // Increment HTTP request counters with instance label
+    httpRequestsTotal.inc({ 
+      method, 
+      route, 
+      status: status.toString(),
+      instance: hostname 
+    });
+    
+    // Record request duration
+    httpRequestDuration.observe({ 
+      method, 
+      route, 
+      status: status.toString(),
+      instance: hostname 
+    }, duration);
+    
+    // Track rate limit allowed requests (if rate limiting is enabled)
+    if (RATE_LIMIT_ENABLED && status !== 429) {
+      rateLimitAllowed.inc({ route });
+    }
+  };
+  
+  res.send = function(data) {
+    recordMetrics();
+    return originalSend.call(this, data);
+  };
+  
+  res.json = function(data) {
+    recordMetrics();
+    return originalJson.call(this, data);
+  };
+  
+  next();
+});
 
-app.use('/auth', AuthRoutes);
-app.use('/users', UserRoutes);
-app.use('/books', BookRoutes);
-app.use('/borrows', BorrowRoutes);
-app.use('/notifications', NotificationRoutes);
+app.use('/auth', authRoutes); // Using modular route
+app.use('/users', userRoutes); // Using modular route
+app.use('/books', bookRoutes); // Using modular route
+app.use('/borrows', borrowRoutes); // Using modular route
+app.use('/notifications', notificationRoutes); // Using modular route
 
+// Root endpoint - optimized with cache headers
 app.get('/', (req, res) => {
-  res.send('Hello World!');
+  res.set('Cache-Control', 'public, max-age=3600'); // Cache 1 hour
+  res.set('Content-Type', 'application/json');
+  res.json({ 
+    name: 'Book-Sharing API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      metrics: '/metrics',
+      docs: '/api-docs'
+    }
+  });
 });
 
 // Health check endpoints

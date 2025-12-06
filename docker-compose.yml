@@ -1,4 +1,29 @@
 services:
+  mongodb:
+    image: mongo:7
+    container_name: booksharing-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=book-sharing
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    command: 
+      - mongod
+      - --wiredTigerCacheSizeGB=0.5
+      - --wiredTigerJournalCompressor=none
+      - --syncdelay=60
+      - --quiet
+      - --logpath=/dev/null
+
   redis:
     image: redis:7-alpine
     container_name: booksharing-redis
@@ -6,6 +31,15 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 600M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    command: redis-server --maxmemory 500mb --maxmemory-policy allkeys-lru --save "" --appendonly no
   backend:
     build: ./backend
     # container_name: booksharing-backend
@@ -14,20 +48,30 @@ services:
     deploy:
       mode: replicated
       replicas: 3 # Chạy 3 instance backend cùng lúc
+      resources:
+        limits:
+          cpus: '1.0'      # Max 1 CPU core per instance
+          memory: 512M     # Max 512MB RAM per instance
+        reservations:
+          cpus: '0.5'      # Reserve 0.5 CPU core
+          memory: 256M     # Reserve 256MB RAM
     environment:
-      - MONGODB_URI=mongodb+srv://khaanh:1234@cluster0.10xlcts.mongodb.net/book-sharing
+      - MONGODB_URI=mongodb://mongodb:27017/book-sharing
       - PORT=3000
       - REDIS_URL=redis://redis:6379
       - RATE_LIMIT_ENABLED=false
       - CACHE_ENABLED=true
+      - NODE_ENV=production
+      - UV_THREADPOOL_SIZE=128   # Increase Node.js thread pool for async I/O
     depends_on:
+      - mongodb
       - redis
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   nginx:
     image: nginx:latest
@@ -90,4 +134,5 @@ services:
       - prometheus
 
 volumes:
+  mongodb_data:
   redis_data: 

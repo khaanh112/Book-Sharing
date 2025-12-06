@@ -22,7 +22,9 @@ export const BookProvider = ({ children }) => {
     try {
       setLoading(true);
       const res = await bookApi.getAllBooks();
-      setBooks(res);
+      // Handle CQRS response format: {books: [...], currentPage, totalPages, ...}
+      const bookData = Array.isArray(res) ? res : (res.books || res.data || []);
+      setBooks(bookData);
     } catch (err) {
       setError(err);
     } finally {

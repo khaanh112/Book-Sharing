@@ -20,7 +20,9 @@ const YourBooks = () => {
     const fetchMyBooks = async () => {
       try {
         const res = await bookApi.getMyBooks();
-        setMyBooks(res || []);
+        // Handle CQRS response format: {books: [...], currentPage, ...}
+        const bookData = Array.isArray(res) ? res : (res.books || res.data || []);
+        setMyBooks(bookData);
       } catch (err) {
         console.error("Error fetching my books:", err);
       } finally {

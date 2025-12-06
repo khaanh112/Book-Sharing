@@ -2,7 +2,8 @@ import API from "./axios";
 
 const BookApi = {
   searchBooks: async (query) => {
-    const response = await API.get(`/books/search?q=${query}`);
+    // Add timestamp to bypass browser cache
+    const response = await API.get(`/books/google-search?q=${query}&_t=${Date.now()}`);
     return response.data;
   },
   getAllBooks: async () => {
