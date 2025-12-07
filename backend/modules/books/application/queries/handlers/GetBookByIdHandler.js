@@ -1,9 +1,9 @@
 import Book from '../../../domain/Book.model.js';
-import cache from '../../../../../shared/utils/cache.js';
+import bookReadModel from '../../../infrastructure/BookReadModelRepository.js';
 
 /**
  * GetBookByIdHandler - Handles GetBookByIdQuery
- * Retrieves a book by ID with cache-first strategy
+ * TRUE CQRS: Reads from Redis Read Model with MongoDB fallback
  */
 class GetBookByIdHandler {
   /**
@@ -15,35 +15,33 @@ class GetBookByIdHandler {
     // Validate query
     query.validate();
 
-    const cacheKey = `book:${query.bookId}`;
-
     try {
-      // Try to get from cache first
-      const cached = await cache.getJSON(cacheKey);
+      // TRUE CQRS: Try Redis Read Model first (2-5ms)
+      console.log(`🔍 Reading book ${query.bookId} from Redis...`);
+      const book = await bookReadModel.getBookById(query.bookId);
       
-      if (cached) {
-        console.log(`⚡ Cache HIT for book: ${query.bookId}`);
-        return cached;
+      if (book) {
+        console.log(`⚡ Read Model HIT: ${query.bookId}`);
+        return book;
       }
 
-      console.log(`⚡ Cache MISS for book: ${query.bookId}`);
-
-      // If not in cache, query from database
-      // Query single book - removed populate for performance
-      const book = await Book.findById(query.bookId)
+      // Fallback to MongoDB
+      console.log(`⚠️ Read Model MISS - fallback to MongoDB: ${query.bookId}`);
+      const bookFromDb = await Book.findById(query.bookId)
         .populate('ownerId', 'name email')
         .select('title authors description thumbnail ownerId available categories googleBookId createdAt updatedAt')
         .lean();
 
-      if (!book) {
+      if (!bookFromDb) {
         throw new Error('Book not found');
       }
 
-      // Cache the result for 5 minutes (300 seconds)
-      await cache.setJSON(cacheKey, book, 300);
-      console.log(`✓ Book cached: ${query.bookId}`);
+      // Sync to read model for next time (async, don't await)
+      bookReadModel.saveBook(bookFromDb).catch(err => 
+        console.error('Failed to sync book to read model:', err)
+      );
 
-      return book;
+      return bookFromDb;
     } catch (error) {
       console.error('Error in GetBookByIdHandler:', error);
       throw error;

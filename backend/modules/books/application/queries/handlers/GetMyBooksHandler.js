@@ -1,9 +1,9 @@
 import Book from '../../../domain/Book.model.js';
-import cache from '../../../../../shared/utils/cache.js';
+import bookReadModel from '../../../infrastructure/BookReadModelRepository.js';
 
 /**
  * GetMyBooksHandler - Handles GetMyBooksQuery
- * Retrieves books owned by a specific user
+ * TRUE CQRS: Reads from Redis Read Model with MongoDB fallback
  */
 class GetMyBooksHandler {
   /**
@@ -15,24 +15,32 @@ class GetMyBooksHandler {
     // Validate query
     query.validate();
 
-    const filter = query.buildFilter();
-    const skip = query.getSkip();
-
-    // Create cache key
-    const cacheKey = `user:${query.userId}:books:page:${query.page}${query.available !== undefined ? `:available:${query.available}` : ''}`;
-
     try {
-      // Try cache first
-      const cached = await cache.getJSON(cacheKey);
-      
-      if (cached) {
-        console.log(`⚡ Cache HIT for user books: ${query.userId}`);
-        return cached;
+      // TRUE CQRS: Try Redis Read Model first (no filters only)
+      if (query.available === undefined) {
+        console.log(`🔍 Reading user ${query.userId} books from Redis...`);
+        const result = await bookReadModel.getBooksByOwner(query.userId, query.page, query.limit);
+        
+        if (result.books && result.books.length > 0) {
+          console.log(`⚡ Read Model HIT: ${result.books.length} books for user ${query.userId}`);
+          return {
+            books: result.books,
+            currentPage: result.currentPage,
+            totalPages: result.totalPages,
+            totalBooks: result.total,
+            hasNextPage: result.hasNextPage,
+            hasPrevPage: result.hasPrevPage
+          };
+        }
+        
+        console.log('⚠️ Read Model empty - falling back to MongoDB');
       }
 
-      console.log(`⚡ Cache MISS for user books: ${query.userId}`);
+      // Fallback to MongoDB for filters or if read model is empty
+      console.log('📊 Fallback: Reading from MongoDB...');
+      const filter = query.buildFilter();
+      const skip = query.getSkip();
 
-      // Query database
       const [books, total] = await Promise.all([
         Book.find(filter)
           .populate('ownerId', 'name email')
@@ -52,9 +60,14 @@ class GetMyBooksHandler {
         hasPrevPage: query.page > 1
       };
 
-      // Cache for 5 minutes
-      await cache.setJSON(cacheKey, result, 300);
-      console.log(`✓ User books cached: ${query.userId}`);
+      // If no filters, sync to read model (async)
+      if (query.available === undefined && books.length > 0) {
+        books.forEach(book => {
+          bookReadModel.saveBook(book).catch(err => 
+            console.error('Failed to sync book:', err)
+          );
+        });
+      }
 
       return result;
     } catch (error) {

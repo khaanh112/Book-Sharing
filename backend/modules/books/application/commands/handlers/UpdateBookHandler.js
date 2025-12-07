@@ -1,6 +1,6 @@
 import Book from '../../../domain/Book.model.js';
-import cache from '../../../../../shared/utils/cache.js';
 import mongoose from 'mongoose';
+import eventBus from '../../../../../shared/events/EventBus.js';
 
 /**
  * UpdateBookHandler - Handles UpdateBookCommand
@@ -43,45 +43,19 @@ class UpdateBookHandler {
       // Save updated book
       await book.save();
 
-      // Invalidate related caches
-      await this.invalidateCache(command.bookId);
-
       console.log(`✓ Book updated successfully: ${book._id}`);
 
-      // TODO: Emit BookUpdated event here when event system is implemented
-      // eventBus.emit('book.updated', { bookId: book._id, ownerId: book.owner, changes: {...} });
+      // Emit BookUpdated event for read model sync
+      eventBus.emit('book.updated', { 
+        bookId: book._id, 
+        ownerId: book.ownerId,
+        title: book.title
+      });
 
       return book;
     } catch (error) {
       console.error('Error in UpdateBookHandler:', error);
       throw error;
-    }
-  }
-
-  /**
-   * Invalidate related caches after book update
-   * @param {string} bookId - ID of the updated book
-   */
-  async invalidateCache(bookId) {
-    try {
-      // Invalidate specific book cache
-      await cache.del(`book:${bookId}`);
-      
-      // Invalidate books list caches
-      await cache.del('books:all');
-      await cache.del('books:available');
-      
-      // Pattern to delete all paginated books caches
-      await cache.delPattern('books:page:*');
-      await cache.delPattern('search:*');
-      
-      // CRITICAL: Invalidate user-specific book caches (my books)
-      await cache.delPattern('user:*:books:*');
-      
-      console.log('✓ Book caches invalidated');
-    } catch (error) {
-      console.error('Error invalidating cache:', error);
-      // Don't throw - cache invalidation failure shouldn't fail the command
     }
   }
 }

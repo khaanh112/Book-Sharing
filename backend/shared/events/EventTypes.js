@@ -15,6 +15,7 @@ const EventTypes = {
   BORROW_APPROVED: 'borrow.approved',
   BORROW_REJECTED: 'borrow.rejected',
   BORROW_RETURNED: 'borrow.returned',
+  BORROW_CANCELLED: 'borrow.cancelled',
   
   // User events
   USER_REGISTERED: 'user.registered',

@@ -72,4 +72,20 @@ eventBus.on(EventTypes.BORROW_RETURNED, async (data) => {
   }
 });
 
+// Listen for borrow.cancelled
+eventBus.on(EventTypes.BORROW_CANCELLED, async (data) => {
+  try {
+    await Notification.create({
+      userId: data.ownerId,
+      type: 'BORROW_CANCELLED',
+      message: `A borrow request was cancelled`,
+      relatedId: data.borrowId,
+      relatedType: 'Borrow'
+    });
+    console.log('✅ Notification created for borrow.cancelled');
+  } catch (error) {
+    console.error('❌ Notification failed for borrow.cancelled:', error.message);
+  }
+});
+
 console.log('👂 NotificationListener registered for borrow events');

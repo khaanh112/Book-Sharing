@@ -1,7 +1,7 @@
 import Book from '../../../domain/Book.model.js';
 import Borrow from '../../../../borrowing/domain/Borrow.model.js';
-import cache from '../../../../../shared/utils/cache.js';
 import cloudinary from '../../../../../config/cloudinary.js';
+import eventBus from '../../../../../shared/events/EventBus.js';
 
 /**
  * DeleteBookHandler - Handles DeleteBookCommand
@@ -57,13 +57,13 @@ class DeleteBookHandler {
       // Delete the book
       await Book.findByIdAndDelete(command.bookId);
 
-      // Invalidate related caches
-      await this.invalidateCache(command.bookId);
-
       console.log(`✓ Book deleted successfully: ${command.bookId}`);
 
-      // TODO: Emit BookDeleted event here when event system is implemented
-      // eventBus.emit('book.deleted', { bookId: command.bookId, ownerId: command.userId });
+      // Emit BookDeleted event for read model sync
+      eventBus.emit('book.deleted', { 
+        bookId: command.bookId, 
+        ownerId: command.userId 
+      });
 
       return {
         success: true,
@@ -87,31 +87,6 @@ class DeleteBookHandler {
       return matches ? matches[1] : null;
     } catch (error) {
       return null;
-    }
-  }
-
-  /**
-   * Invalidate related caches after book deletion
-   * @param {string} bookId - ID of the deleted book
-   */
-  async invalidateCache(bookId) {
-    try {
-      // Invalidate specific book cache
-      await cache.del(`book:${bookId}`);
-      
-      // Invalidate books list caches
-      await cache.del('books:all');
-      await cache.del('books:available');
-      
-      // Pattern to delete all paginated books caches
-      await cache.delPattern('books:page:*');
-      await cache.delPattern('search:*');
-      await cache.delPattern(`user:*:books:*`);
-      
-      console.log('✓ Book caches invalidated');
-    } catch (error) {
-      console.error('Error invalidating cache:', error);
-      // Don't throw - cache invalidation failure shouldn't fail the command
     }
   }
 }

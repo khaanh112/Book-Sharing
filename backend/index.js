@@ -35,8 +35,12 @@ import initializeCQRS from './cqrs/bootstrap.js';
 initializeCQRS();
 
 // Initialize Event-Driven Architecture
-import registerAllListeners from './shared/events/registerListeners.js';
+import registerAllListeners, { performInitialReadModelSync } from './shared/events/registerListeners.js';
 registerAllListeners();
+
+// Perform initial Read Model sync (TRUE CQRS)
+// This syncs MongoDB data to Redis for fast reads
+await performInitialReadModelSync();
 
 const app = express();
 

@@ -1,9 +1,10 @@
 import Book from '../../../domain/Book.model.js';
-import cache from '../../../../../shared/utils/cache.js';
+import bookReadModel from '../../../infrastructure/BookReadModelRepository.js';
 
 /**
  * GetAllBooksHandler - Handles GetAllBooksQuery
- * Retrieves all books with optional filters and pagination
+ * TRUE CQRS: Reads from Redis (Read Model) instead of MongoDB
+ * Fallback to MongoDB if Redis is empty
  */
 class GetAllBooksHandler {
   /**
@@ -16,24 +17,34 @@ class GetAllBooksHandler {
     query.validate();
 
     const hasFilters = query.hasFilters();
-    const filter = query.buildFilter();
-    const skip = query.getSkip();
 
     try {
-      // Use cache only if no filters applied
+      // TRUE CQRS: Read from Redis Read Model (no filters only)
       if (!hasFilters) {
-        const cacheKey = `books:page:${query.page}`;
-        const cached = await cache.getJSON(cacheKey);
+        console.log(`🔍 Reading from Redis Read Model (page ${query.page})...`);
+        const result = await bookReadModel.getAllBooks(query.page, query.limit);
         
-        if (cached) {
-          console.log(`⚡ Cache HIT for books page: ${query.page}`);
-          return cached;
+        // If read model has data, return immediately (2-5ms response!)
+        if (result.books && result.books.length > 0) {
+          console.log(`⚡ Read Model HIT: ${result.books.length} books (page ${query.page})`);
+          return {
+            books: result.books,
+            currentPage: result.currentPage,
+            totalPages: result.totalPages,
+            totalBooks: result.total,
+            hasNextPage: result.hasNextPage,
+            hasPrevPage: result.hasPrevPage
+          };
         }
-        console.log(`⚡ Cache MISS for books page: ${query.page}`);
+        
+        console.log('⚠️ Read Model empty - falling back to MongoDB');
       }
 
-      // Query database - removed populate for better performance
-      // Frontend should fetch owner details separately if needed
+      // Fallback to MongoDB for filters or if read model is empty
+      console.log('📊 Fallback: Reading from MongoDB...');
+      const filter = query.buildFilter();
+      const skip = query.getSkip();
+
       const [books, total] = await Promise.all([
         Book.find(filter)
           .populate('ownerId', 'name email')
@@ -41,7 +52,7 @@ class GetAllBooksHandler {
           .limit(query.limit)
           .select('title authors description thumbnail ownerId available categories googleBookId createdAt updatedAt')
           .sort({ createdAt: -1 })
-          .lean(), // Plain JS objects - much faster
+          .lean(),
         Book.countDocuments(filter)
       ]);
 
@@ -54,11 +65,13 @@ class GetAllBooksHandler {
         hasPrevPage: query.page > 1
       };
 
-      // Cache the result if no filters (5 minutes TTL)
-      if (!hasFilters) {
-        const cacheKey = `books:page:${query.page}`;
-        await cache.setJSON(cacheKey, result, 300);
-        console.log(`✓ Books page cached: ${query.page}`);
+      // If no filters, sync this to read model for next time
+      if (!hasFilters && books.length > 0) {
+        console.log('🔄 Syncing fallback data to read model...');
+        // Async sync - don't await
+        bookReadModel.rebuildFromSource(books).catch(err => 
+          console.error('Failed to sync to read model:', err)
+        );
       }
 
       return result;
