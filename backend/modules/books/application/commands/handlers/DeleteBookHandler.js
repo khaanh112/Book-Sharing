@@ -1,11 +1,13 @@
 import Book from '../../../domain/Book.model.js';
-import Borrow from '../../../../borrowing/domain/Borrow.model.js';
 import cloudinary from '../../../../../config/cloudinary.js';
 import eventBus from '../../../../../shared/events/EventBus.js';
 
 /**
  * DeleteBookHandler - Handles DeleteBookCommand
  * Deletes a book from the database
+ * 
+ * TRUE EVENT-DRIVEN: No cross-module dependencies
+ * Emits event to check active borrows via shared listener
  */
 class DeleteBookHandler {
   /**
@@ -30,14 +32,12 @@ class DeleteBookHandler {
         throw new Error('Unauthorized: Only the book owner can delete this book');
       }
 
-      // Check if book has active borrows
-      const activeBorrows = await Borrow.countDocuments({
-        book: command.bookId,
-        status: { $in: ['pending', 'accepted'] }
-      });
-
-      if (activeBorrows > 0) {
-        throw new Error('Cannot delete book with active borrow requests');
+      // Emit pre-delete validation event (synchronous check via listener)
+      // CascadeCleanupListener will check and throw if book has active borrows
+      const validationError = await this.validateBookDeletion(command.bookId);
+      
+      if (validationError) {
+        throw new Error(validationError);
       }
 
       // Delete book image from Cloudinary if exists
@@ -88,6 +88,33 @@ class DeleteBookHandler {
     } catch (error) {
       return null;
     }
+  }
+
+  /**
+   * Validate book deletion via event-driven check
+   * Returns error message if validation fails, null if ok
+   */
+  async validateBookDeletion(bookId) {
+    return new Promise((resolve) => {
+      // Create one-time listener for validation response
+      const responseHandler = (data) => {
+        if (data.bookId === bookId) {
+          eventBus.removeListener('book.delete.validation.response', responseHandler);
+          resolve(data.error || null);
+        }
+      };
+      
+      eventBus.on('book.delete.validation.response', responseHandler);
+      
+      // Emit validation request
+      eventBus.emit('book.delete.validation.request', { bookId });
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        eventBus.removeListener('book.delete.validation.response', responseHandler);
+        resolve(null); // Allow deletion if no response
+      }, 5000);
+    });
   }
 }
 

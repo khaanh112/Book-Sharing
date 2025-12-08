@@ -2,6 +2,7 @@
 import NotificationService from './domain/NotificationService.js';
 import NotificationRepository from './infrastructure/NotificationRepository.js';
 import notificationRoutes from './interface/NotificationRoutes.js';
+import './infrastructure/NotificationsModuleListener.js'; // Event-driven communication
 
 // Initialize repository and service
 const notificationRepository = new NotificationRepository();

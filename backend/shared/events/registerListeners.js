@@ -7,12 +7,14 @@
 import './listeners/NotificationListener.js';
 import './listeners/EmailListener.js';
 import './listeners/CacheInvalidationListener.js';
+import './listeners/CascadeCleanupListener.js';
 import readModelSync from './listeners/ReadModelSyncListener.js';
 
 console.log('\n🎧 Event-Driven Architecture initialized!');
 console.log('   - NotificationListener registered');
 console.log('   - EmailListener registered');
 console.log('   - CacheInvalidationListener registered');
+console.log('   - CascadeCleanupListener registered');
 console.log('   - ReadModelSyncListener registered (TRUE CQRS)\n');
 
 export default function registerAllListeners() {
@@ -22,6 +24,7 @@ export default function registerAllListeners() {
       'NotificationListener',
       'EmailListener',
       'CacheInvalidationListener',
+      'CascadeCleanupListener',
       'ReadModelSyncListener'
     ]
   };

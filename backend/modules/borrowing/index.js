@@ -2,6 +2,7 @@
 import BorrowService from './domain/BorrowService.js';
 import BorrowRepository from './infrastructure/BorrowRepository.js';
 import borrowRoutes from './interface/BorrowRoutes.js';
+import './infrastructure/BorrowingModuleListener.js'; // Event-driven communication
 
 // Initialize repository and service
 const borrowRepository = new BorrowRepository();

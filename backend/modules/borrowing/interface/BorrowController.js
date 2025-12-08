@@ -1,6 +1,4 @@
 import Borrow from '../domain/Borrow.model.js';
-import Book from '../../books/domain/Book.model.js';
-import User from '../../users/domain/User.model.js';
 import { 
   notifyNewBorrowRequest,
   notifyBorrowAccepted,
@@ -10,6 +8,12 @@ import {
 import cache from '../../../shared/utils/cache.js';
 import eventBus from '../../../shared/events/EventBus.js';
 import EventTypes from '../../../shared/events/EventTypes.js';
+
+// CQRS imports - No cross-module dependencies
+import { queryBus, commandBus } from '../../../cqrs/bootstrap.js';
+import GetBookByIdQuery from '../../books/application/queries/GetBookByIdQuery.js';
+import GetUserByIdQuery from '../../users/application/queries/GetUserByIdQuery.js';
+import UpdateBookCommand from '../../books/application/commands/UpdateBookCommand.js';
 
 // Tạo yêu cầu mượn sách
 const createBorrow = async (req, res) => {
@@ -24,8 +28,8 @@ const createBorrow = async (req, res) => {
       });
     }
 
-    // Kiểm tra sách tồn tại và còn available
-    const book = await Book.findById(bookId);
+    // Kiểm tra sách tồn tại và còn available (CQRS Query)
+    const book = await queryBus.execute(new GetBookByIdQuery(bookId.toString()));
     if (!book) {
       return res.status(404).json({
         status: "error",
@@ -78,8 +82,8 @@ const createBorrow = async (req, res) => {
       ownerId: borrow.ownerId
     });
 
-    // Lấy thông tin borrower và gửi notification cho owner
-    const borrower = await User.findById(borrowerId);
+    // Lấy thông tin borrower và gửi notification cho owner (CQRS Query)
+    const borrower = await queryBus.execute(new GetUserByIdQuery(borrowerId.toString()));
     notifyNewBorrowRequest(
       book.ownerId,
       borrower.name,
@@ -152,8 +156,12 @@ const acceptBorrow = async (req, res) => {
     await borrow.save();
     console.log('✅ Borrow status updated to accepted');
 
-    // Đánh dấu sách không còn available
-    await Book.findByIdAndUpdate(borrow.bookId, { available: false });
+    // Đánh dấu sách không còn available (CQRS Command)
+    await commandBus.execute(new UpdateBookCommand({
+      bookId: borrow.bookId,
+      userId: req.user.id, // Owner ID for authorization
+      updates: { available: false }
+    }));
     console.log('✅ Book marked as unavailable:', borrow.bookId);
 
     // Emit event for read model sync
@@ -165,15 +173,16 @@ const acceptBorrow = async (req, res) => {
       ownerId: borrow.ownerId
     });
 
-    // Emit book.borrowed event to update read model availability
+    // Gửi notification cho borrower (CQRS Queries)
+    const owner = await queryBus.execute(new GetUserByIdQuery(borrow.ownerId.toString()));
+    const book = await queryBus.execute(new GetBookByIdQuery(borrow.bookId.toString()));
+
+    // Emit book.borrowed event with full book data for read model
     console.log('📤 Emitting book.borrowed event');
     eventBus.emit('book.borrowed', {
-      bookId: borrow.bookId
+      bookId: borrow.bookId,
+      book: book // Full book data for read model sync
     });
-
-    // Gửi notification cho borrower
-    const owner = await User.findById(borrow.ownerId);
-    const book = await Book.findById(borrow.bookId);
     notifyBorrowAccepted(
       borrow.borrowerId,
       owner.name,
@@ -216,8 +225,12 @@ const returnBorrow = async (req, res) => {
   borrow.returnDate = new Date();
   await borrow.save();
 
-  // Đánh dấu sách available lại
-  await Book.findByIdAndUpdate(borrow.bookId, { available: true });
+  // Đánh dấu sách available lại (CQRS Command)
+  await commandBus.execute(new UpdateBookCommand({
+    bookId: borrow.bookId,
+    userId: req.user.id, // Borrower ID
+    updates: { available: true }
+  }));
 
   // Emit event for read model sync
   eventBus.emit(EventTypes.BORROW_RETURNED, {
@@ -227,14 +240,15 @@ const returnBorrow = async (req, res) => {
     ownerId: borrow.ownerId
   });
 
-  // Emit book.returned event to update read model availability
-  eventBus.emit('book.returned', {
-    bookId: borrow.bookId
-  });
+  // Gửi notification cho owner (CQRS Queries)
+  const borrower = await queryBus.execute(new GetUserByIdQuery(borrow.borrowerId.toString()));
+  const book = await queryBus.execute(new GetBookByIdQuery(borrow.bookId.toString()));
 
-  // Gửi notification cho owner
-  const borrower = await User.findById(borrow.borrowerId);
-  const book = await Book.findById(borrow.bookId);
+  // Emit book.returned event with full book data for read model
+  eventBus.emit('book.returned', {
+    bookId: borrow.bookId,
+    book: book // Full book data for read model sync
+  });
   notifyBookReturned(
     borrow.ownerId,
     borrower.name,
@@ -276,9 +290,9 @@ const rejectBorrow = async (req, res) => {
     ownerId: borrow.ownerId
   });
 
-  // Gửi notification cho borrower
-  const owner = await User.findById(borrow.ownerId);
-  const book = await Book.findById(borrow.bookId);
+  // Gửi notification cho borrower (CQRS Queries)
+  const owner = await queryBus.execute(new GetUserByIdQuery(borrow.ownerId.toString()));
+  const book = await queryBus.execute(new GetBookByIdQuery(borrow.bookId.toString()));
   notifyBorrowRejected(
     borrow.borrowerId,
     owner.name,

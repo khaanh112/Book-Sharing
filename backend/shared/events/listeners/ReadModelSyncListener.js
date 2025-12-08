@@ -1,6 +1,5 @@
 import eventBus from '../EventBus.js';
 import bookReadModel from '../../../modules/books/infrastructure/BookReadModelRepository.js';
-import Book from '../../../modules/books/domain/Book.model.js';
 
 /**
  * ReadModelSyncListener - Syncs MongoDB writes to Redis read models
@@ -21,13 +20,9 @@ class ReadModelSyncListener {
       try {
         console.log('🔄 Syncing new book to read model:', data.bookId);
         
-        // Fetch full book data with owner populated
-        const book = await Book.findById(data.bookId)
-          .populate('ownerId', 'name email')
-          .lean();
-
-        if (book) {
-          await bookReadModel.saveBook(book);
+        // Use book data from event (already populated)
+        if (data.book) {
+          await bookReadModel.saveBook(data.book);
           await bookReadModel.invalidateSearchCache();
           console.log('✅ Book added to read model:', data.bookId);
         }
@@ -41,13 +36,9 @@ class ReadModelSyncListener {
       try {
         console.log('🔄 Syncing book update to read model:', data.bookId);
         
-        // Fetch updated book data with owner
-        const book = await Book.findById(data.bookId)
-          .populate('ownerId', 'name email')
-          .lean();
-
-        if (book) {
-          await bookReadModel.saveBook(book); // Overwrite
+        // Use book data from event (already populated)
+        if (data.book) {
+          await bookReadModel.saveBook(data.book); // Overwrite
           await bookReadModel.invalidateSearchCache();
           console.log('✅ Book updated in read model:', data.bookId);
         } else {
@@ -77,12 +68,9 @@ class ReadModelSyncListener {
       try {
         console.log('🔄 Updating book availability in read model:', data.bookId);
         
-        const book = await Book.findById(data.bookId)
-          .populate('ownerId', 'name email')
-          .lean();
-
-        if (book) {
-          await bookReadModel.saveBook(book); // Update with new availability
+        // Use book data from event if provided
+        if (data.book) {
+          await bookReadModel.saveBook(data.book); // Update with new availability
           console.log('✅ Book availability updated in read model:', data.bookId);
         }
       } catch (error) {
@@ -95,12 +83,9 @@ class ReadModelSyncListener {
       try {
         console.log('🔄 Updating book availability in read model:', data.bookId);
         
-        const book = await Book.findById(data.bookId)
-          .populate('ownerId', 'name email')
-          .lean();
-
-        if (book) {
-          await bookReadModel.saveBook(book); // Update with new availability
+        // Use book data from event if provided
+        if (data.book) {
+          await bookReadModel.saveBook(data.book); // Update with new availability
           console.log('✅ Book availability updated in read model:', data.bookId);
         }
       } catch (error) {
@@ -119,30 +104,34 @@ class ReadModelSyncListener {
     try {
       console.log('🔄 Performing initial read model sync...');
       
-      // CRITICAL: Clear cache and bypass Mongoose cache
-      // Use native MongoDB driver to ensure we get fresh data
-      const mongoose = await import('mongoose');
-      const booksCollection = mongoose.default.connection.collection('books');
-      const booksFromMongo = await booksCollection.find({}).toArray();
-      
-      console.log(`📊 Direct MongoDB query found ${booksFromMongo.length} books`);
-      booksFromMongo.forEach(book => {
-        console.log(`   [MONGO] ${book._id}: ${book.title} (available=${book.available})`);
+      // Emit event to request books data from Books module
+      return new Promise((resolve) => {
+        const responseHandler = async (data) => {
+          try {
+            eventBus.removeListener('books.initial.sync.response', responseHandler);
+            
+            const books = data.books || [];
+            console.log(`📊 Received ${books.length} books from Books module`);
+            
+            await bookReadModel.rebuildFromSource(books);
+            console.log(`✅ Initial sync complete: ${books.length} books synced to read model`);
+            resolve(true);
+          } catch (error) {
+            console.error('❌ Initial sync failed:', error);
+            resolve(false);
+          }
+        };
+        
+        eventBus.on('books.initial.sync.response', responseHandler);
+        eventBus.emit('books.initial.sync.request', {});
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          eventBus.removeListener('books.initial.sync.response', responseHandler);
+          console.error('❌ Initial sync timeout - no response from Books module');
+          resolve(false);
+        }, 10000);
       });
-      
-      const books = await Book.find()
-        .populate('ownerId', 'name email')
-        .lean();
-
-      console.log(`📊 Mongoose query found ${books.length} books:`);
-      books.forEach(book => {
-        console.log(`   [MONGOOSE] ${book._id}: ${book.title} (available=${book.available})`);
-      });
-
-      await bookReadModel.rebuildFromSource(books);
-      
-      console.log(`✅ Initial sync complete: ${books.length} books synced to read model`);
-      return true;
     } catch (error) {
       console.error('❌ Initial sync failed:', error);
       return false;

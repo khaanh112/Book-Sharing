@@ -17,6 +17,10 @@ import GetAllBooksHandler from '../modules/books/application/queries/handlers/Ge
 import SearchBooksHandler from '../modules/books/application/queries/handlers/SearchBooksHandler.js';
 import GetMyBooksHandler from '../modules/books/application/queries/handlers/GetMyBooksHandler.js';
 
+// User Query Handlers
+import GetUserByIdHandler from '../modules/users/application/queries/handlers/GetUserByIdHandler.js';
+import GetUserByEmailHandler from '../modules/users/application/queries/handlers/GetUserByEmailHandler.js';
+
 /**
  * Initialize CQRS system by registering all handlers
  */
@@ -35,6 +39,10 @@ function initializeCQRS() {
   queryBus.register('GetAllBooksQuery', new GetAllBooksHandler());
   queryBus.register('SearchBooksQuery', new SearchBooksHandler());
   queryBus.register('GetMyBooksQuery', new GetMyBooksHandler());
+  
+  // User Query Handlers
+  queryBus.register('GetUserByIdQuery', new GetUserByIdHandler());
+  queryBus.register('GetUserByEmailQuery', new GetUserByEmailHandler());
 
   console.log('\n✅ CQRS system initialized successfully!');
   console.log(`   - ${commandBus.getRegisteredCommands().length} command handlers registered`);

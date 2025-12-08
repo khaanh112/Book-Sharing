@@ -1,4 +1,4 @@
-import User from "../../users/domain/User.model.js";
+import User from "../../users/domain/User.model.js"; // Keep for User.create() only
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
@@ -7,13 +7,19 @@ import { generateAccessToken, generateRefreshToken } from "../../../shared/utils
 import { setAccessTokenCookie, setRefreshTokenCookie } from "../../../shared/utils/cookie.js";
 import redisClient from "../../../shared/utils/redisClient.js"; // Redis client
 
+// CQRS imports - Use QueryBus instead of direct User queries
+import { queryBus } from '../../../cqrs/bootstrap.js';
+import GetUserByEmailQuery from '../../users/application/queries/GetUserByEmailQuery.js';
+import GetUserByIdQuery from '../../users/application/queries/GetUserByIdQuery.js';
+
 // Register
 const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     throw new Error("All fields are mandatory");
   }
-  const userAvailable = await User.findOne({ email });
+  // Use CQRS Query instead of direct User.findOne
+  const userAvailable = await queryBus.execute(new GetUserByEmailQuery(email));
   if (userAvailable) {
     res.status(400);
     throw new Error("This email is already registered!");
@@ -36,7 +42,8 @@ const verifyEmail = async (req, res) => {
   }
   const userData = JSON.parse(Buffer.from(user, "base64").toString("utf8"));
 
-  const userAvailable = await User.findOne({ email: userData.email });
+  // Use CQRS Query
+  const userAvailable = await queryBus.execute(new GetUserByEmailQuery(userData.email));
   if (userAvailable) {
     res.status(400);
     throw new Error("User already registered by this email!");
@@ -58,7 +65,8 @@ const loginUser = async (req, res) => {
     return res.status(400);
     throw new Error("All fields are mandatory");
   }
-  const user = await User.findOne({ email });
+  // Use CQRS Query
+  const user = await queryBus.execute(new GetUserByEmailQuery(email));
   if (user && (await bcrypt.compare(password, user.passwordHash))) {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
@@ -83,7 +91,8 @@ const refreshToken = async (req, res) => {
   try {
     const payload = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
 
-    const user = await User.findById(payload.user.id);
+    // Use CQRS Query
+    const user = await queryBus.execute(new GetUserByIdQuery(payload.user.id));
     if (!user) {
       res.status(401);
       throw new Error("User not found");

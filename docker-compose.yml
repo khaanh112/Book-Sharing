@@ -63,6 +63,7 @@ services:
       - CACHE_ENABLED=true
       - NODE_ENV=production
       - UV_THREADPOOL_SIZE=128   # Increase Node.js thread pool for async I/O
+      - FRONTEND_URL=http://localhost:5173
     depends_on:
       - mongodb
       - redis
@@ -100,17 +101,17 @@ services:
     ports:
       - "8089:8089"
     environment:
-      - LOCUST_USER_EMAIL=${LOCUST_USER_EMAIL}
-      - LOCUST_USER_PASSWORD=${LOCUST_USER_PASSWORD}
-      - LOCUST_HOST=http://backend:3000
+      - LOCUST_USER_EMAIL=${LOCUST_USER_EMAIL:-locust-test@example.com}
+      - LOCUST_USER_PASSWORD=${LOCUST_USER_PASSWORD:-12345678}
+      - LOCUST_HOST=http://nginx:80
     depends_on:
-      - backend
+      - nginx
     # don't repeat 'locust' because image ENTRYPOINT is already 'locust'
     command:
       - "-f"
       - "/mnt/locust/locustfile.py"
       - "--host"
-      - "http://backend:3000"
+      - "http://nginx:80"
 
   prometheus:
     image: prom/prometheus:latest

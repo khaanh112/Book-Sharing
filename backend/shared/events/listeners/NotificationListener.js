@@ -1,7 +1,6 @@
 // shared/events/listeners/NotificationListener.js
 import eventBus from '../EventBus.js';
 import EventTypes from '../EventTypes.js';
-import Notification from '../../../modules/notifications/domain/Notification.model.js';
 
 /**
  * NotificationListener - Creates notifications in background
@@ -11,14 +10,15 @@ import Notification from '../../../modules/notifications/domain/Notification.mod
 // Listen for borrow.created
 eventBus.on(EventTypes.BORROW_CREATED, async (data) => {
   try {
-    await Notification.create({
+    // Emit event to Notifications module to create notification
+    eventBus.emit('notification.create.request', {
       userId: data.ownerId,
       type: 'BORROW_REQUEST',
       message: `Someone wants to borrow your book`,
       relatedId: data.borrowId,
-      relatedType: 'Borrow'
+      relatedModel: 'Borrow'
     });
-    console.log('✅ Notification created for borrow.created');
+    console.log('✅ Notification request sent for borrow.created');
   } catch (error) {
     console.error('❌ Notification failed for borrow.created:', error.message);
   }
@@ -27,14 +27,14 @@ eventBus.on(EventTypes.BORROW_CREATED, async (data) => {
 // Listen for borrow.approved
 eventBus.on(EventTypes.BORROW_APPROVED, async (data) => {
   try {
-    await Notification.create({
+    eventBus.emit('notification.create.request', {
       userId: data.borrowerId,
       type: 'BORROW_APPROVED',
       message: `Your borrow request was approved!`,
       relatedId: data.borrowId,
-      relatedType: 'Borrow'
+      relatedModel: 'Borrow'
     });
-    console.log('✅ Notification created for borrow.approved');
+    console.log('✅ Notification request sent for borrow.approved');
   } catch (error) {
     console.error('❌ Notification failed for borrow.approved:', error.message);
   }
@@ -43,14 +43,14 @@ eventBus.on(EventTypes.BORROW_APPROVED, async (data) => {
 // Listen for borrow.rejected
 eventBus.on(EventTypes.BORROW_REJECTED, async (data) => {
   try {
-    await Notification.create({
+    eventBus.emit('notification.create.request', {
       userId: data.borrowerId,
       type: 'BORROW_REJECTED',
       message: `Your borrow request was rejected${data.reason ? ': ' + data.reason : ''}`,
       relatedId: data.borrowId,
-      relatedType: 'Borrow'
+      relatedModel: 'Borrow'
     });
-    console.log('✅ Notification created for borrow.rejected');
+    console.log('✅ Notification request sent for borrow.rejected');
   } catch (error) {
     console.error('❌ Notification failed for borrow.rejected:', error.message);
   }
@@ -59,14 +59,14 @@ eventBus.on(EventTypes.BORROW_REJECTED, async (data) => {
 // Listen for borrow.returned
 eventBus.on(EventTypes.BORROW_RETURNED, async (data) => {
   try {
-    await Notification.create({
+    eventBus.emit('notification.create.request', {
       userId: data.ownerId,
       type: 'BOOK_RETURNED',
       message: `Your book has been returned`,
       relatedId: data.borrowId,
-      relatedType: 'Borrow'
+      relatedModel: 'Borrow'
     });
-    console.log('✅ Notification created for borrow.returned');
+    console.log('✅ Notification request sent for borrow.returned');
   } catch (error) {
     console.error('❌ Notification failed for borrow.returned:', error.message);
   }
@@ -75,14 +75,14 @@ eventBus.on(EventTypes.BORROW_RETURNED, async (data) => {
 // Listen for borrow.cancelled
 eventBus.on(EventTypes.BORROW_CANCELLED, async (data) => {
   try {
-    await Notification.create({
+    eventBus.emit('notification.create.request', {
       userId: data.ownerId,
       type: 'BORROW_CANCELLED',
       message: `A borrow request was cancelled`,
       relatedId: data.borrowId,
-      relatedType: 'Borrow'
+      relatedModel: 'Borrow'
     });
-    console.log('✅ Notification created for borrow.cancelled');
+    console.log('✅ Notification request sent for borrow.cancelled');
   } catch (error) {
     console.error('❌ Notification failed for borrow.cancelled:', error.message);
   }

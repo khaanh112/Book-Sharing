@@ -30,11 +30,16 @@ class CreateBookHandler {
 
       console.log(`✓ Book created successfully: ${book._id}`);
 
-      // Emit BookCreated event for read model sync
+      // Populate and emit full book data for read model sync
+      const populatedBook = await Book.findById(book._id)
+        .populate('ownerId', 'name email')
+        .lean();
+
       eventBus.emit('book.created', { 
         bookId: book._id, 
         ownerId: book.ownerId, 
-        title: book.title 
+        title: book.title,
+        book: populatedBook // Full book data for read model
       });
 
       return book;

@@ -4,6 +4,7 @@
 import BookService from './domain/BookService.js';
 import BookRepository from './infrastructure/BookRepository.js';
 import bookRoutes from './interface/BookRoutes.js';
+import './infrastructure/BooksModuleListener.js'; // Event-driven communication
 
 // Initialize repository and service
 const bookRepository = new BookRepository();

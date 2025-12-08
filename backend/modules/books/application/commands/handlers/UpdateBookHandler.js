@@ -24,8 +24,19 @@ class UpdateBookHandler {
         throw new Error('Book not found');
       }
 
-      // Check authorization - only owner can update
-      if (book.ownerId.toString() !== command.userId.toString()) {
+      // Check authorization - only owner can update (except for availability changes from borrow system)
+      const updatedFields = Object.keys(command).filter(k => 
+        command[k] !== undefined && 
+        k !== 'bookId' && 
+        k !== 'userId' &&
+        k !== 'timestamp' &&
+        k !== 'correlationId'
+      );
+      const isAvailabilityOnlyUpdate = 
+        updatedFields.length === 1 && 
+        updatedFields[0] === 'available';
+      
+      if (!isAvailabilityOnlyUpdate && book.ownerId.toString() !== command.userId.toString()) {
         throw new Error('Unauthorized: Only the book owner can update this book');
       }
 
@@ -45,11 +56,16 @@ class UpdateBookHandler {
 
       console.log(`✓ Book updated successfully: ${book._id}`);
 
-      // Emit BookUpdated event for read model sync
+      // Populate and emit full book data for read model sync
+      const populatedBook = await Book.findById(book._id)
+        .populate('ownerId', 'name email')
+        .lean();
+
       eventBus.emit('book.updated', { 
         bookId: book._id, 
         ownerId: book.ownerId,
-        title: book.title
+        title: book.title,
+        book: populatedBook // Full book data for read model
       });
 
       return book;
